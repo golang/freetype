@@ -1,0 +1,517 @@
+// Copyright 2010 The Freetype-Go Authors. All rights reserved.
+// Use of this source code is governed by your choice of either the
+// FreeType License or the GNU General Public License version 2,
+// both of which can be found in the LICENSE file.
+
+// The raster package provides an anti-aliasing 2-D rasterizer.
+//
+// It is part of the larger Freetype-Go suite of font-related packages,
+// but the raster package is not specific to font rasterization, and can
+// be used standalone without any other Freetype-Go package.
+//
+// Rasterization is done by the same area/coverage accumulation algorithm
+// as the Freetype "smooth" module, and the Anti-Grain Geometry library.
+// A description of the area/coverage algorithm is at
+// http://projects.tuxee.net/cl-vectors/section-the-cl-aa-algorithm
+package raster
+
+import (
+	"fmt"
+	"image"
+	"strconv"
+)
+
+// A Painter knows how to paint a span, and a span is a horizontal segment
+// of a certain alpha. A fully opaque span has alpha == 1<<32-1. A span's
+// alpha is non-zero until the final Paint call of the rasterization, which
+// has all arguments zero.
+// TODO(nigeltao): Is it worth batching spans, so that Paint takes a []Span
+// instead of a single Span?
+type Painter interface {
+	Paint(yi, xi0, xi1 int, alpha uint32)
+}
+
+// The PainterFunc type adapts an ordinary function to the Painter interface.
+type PainterFunc func(yi, xi0, xi1 int, alpha uint32)
+
+// Paint just delegates the call to f.
+func (f PainterFunc) Paint(yi, xi0, xi1 int, alpha uint32) {
+	f(yi, xi0, xi1, alpha)
+}
+
+// A 24.8 fixed point number.
+type Fixed int32
+
+// Human-readable format for a 24.8 fixed point number. For example, the
+// number one-and-a-quarter becomes "1:064".
+func (x Fixed) String() string {
+	i, f := x/256, x%256
+	if f < 0 {
+		f = -f
+	}
+	return fmt.Sprintf("%d:%03d", i, f)
+}
+
+// Two-dimensional point, in 24.8 fixed point format.
+type Point struct {
+	X, Y Fixed
+}
+
+// A cell is part of a linked list (for a given yi coordinate) of accumulated
+// area/coverage for the pixel at (xi, yi).
+type cell struct {
+	xi          int
+	area, cover int
+	next        int
+}
+
+type Rasterizer struct {
+	// If false, the default behavior is to use the even-odd winding fill
+	// rule during Rasterize.
+	UseNonZeroWinding bool
+
+	// The width of the Rasterizer. The height is implicit in len(cellIndex).
+	width int
+	// quadSplitScale is the scaling factor used to determine how many times
+	// to decompose a quadratic segment into a linear approximation.
+	quadSplitScale int
+
+	// The current pen position.
+	a Point
+	// The current cell and its area/coverage being accumulated.
+	xi, yi      int
+	area, cover int
+
+	// Saved cells.
+	cell []cell
+	// Linked list of cells, one per row.
+	cellIndex []int
+	// Buffers.
+	cellBuf      [256]cell
+	cellIndexBuf [64]int
+}
+
+// findCell returns the index in r.cell for the cell corresponding to
+// (r.xi, r.yi). The cell is created if necessary.
+func (r *Rasterizer) findCell() int {
+	if r.yi < 0 || r.yi >= len(r.cellIndex) {
+		return -1
+	}
+	xi := r.xi
+	if xi < 0 {
+		xi = -1
+	} else if xi > r.width {
+		xi = r.width
+	}
+	i, prev := r.cellIndex[r.yi], -1
+	for i != -1 && r.cell[i].xi <= xi {
+		if r.cell[i].xi == xi {
+			return i
+		}
+		i, prev = r.cell[i].next, i
+	}
+	c := len(r.cell)
+	if c == cap(r.cell) {
+		buf := make([]cell, c, 4*c)
+		copy(buf, r.cell)
+		r.cell = buf[0 : c+1]
+	} else {
+		r.cell = r.cell[0 : c+1]
+	}
+	r.cell[c] = cell{xi, 0, 0, i}
+	if prev == -1 {
+		r.cellIndex[r.yi] = c
+	} else {
+		r.cell[prev].next = c
+	}
+	return c
+}
+
+// saveCell saves any accumulated r.area/r.cover for (r.xi, r.yi).
+func (r *Rasterizer) saveCell() {
+	if r.area != 0 || r.cover != 0 {
+		i := r.findCell()
+		if i != -1 {
+			r.cell[i].area += r.area
+			r.cell[i].cover += r.cover
+		}
+		r.area = 0
+		r.cover = 0
+	}
+}
+
+// setCell sets the (xi, yi) cell that r is accumulating area/coverage for.
+func (r *Rasterizer) setCell(xi, yi int) {
+	if r.xi != xi || r.yi != yi {
+		r.saveCell()
+		r.xi, r.yi = xi, yi
+	}
+}
+
+// scan accumulates area/coverage for the yi'th scanline, going from
+// x0 to x1 in the horizontal direction (in 24.8 fixed point co-ordinates)
+// and from y0f to y1f fractional vertical units within that scanline.
+func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fixed) {
+	// Break the 24.8 fixed point X co-ordinates into integral and fractional parts.
+	x0i := int(x0) / 256
+	x0f := x0 - Fixed(256*x0i)
+	x1i := int(x1) / 256
+	x1f := x1 - Fixed(256*x1i)
+
+	// A perfectly horizontal scan.
+	if y0f == y1f {
+		r.setCell(x1i, yi)
+		return
+	}
+	dx, dy := x1-x0, y1f-y0f
+	// A single cell scan.
+	if x0i == x1i {
+		r.area += int((x0f + x1f) * dy)
+		r.cover += int(dy)
+		return
+	}
+	// There are at least two cells. Apart from the first and last cells,
+	// all intermediate cells go through the full width of the cell,
+	// or 256 units in 24.8 fixed point format.
+	var (
+		p, q, edge0, edge1 Fixed
+		xiDelta            int
+	)
+	if dx > 0 {
+		p, q = (256-x0f)*dy, dx
+		edge0, edge1, xiDelta = 0, 256, 1
+	} else {
+		p, q = x0f*dy, -dx
+		edge0, edge1, xiDelta = 256, 0, -1
+	}
+	yDelta, yRem := p/q, p%q
+	if yRem < 0 {
+		yDelta -= 1
+		yRem += q
+	}
+	// Do the first cell.
+	xi, y := x0i, y0f
+	r.area += int((x0f + edge1) * yDelta)
+	r.cover += int(yDelta)
+	xi, y = xi+xiDelta, y+yDelta
+	r.setCell(xi, yi)
+	if xi != x1i {
+		// Do all the intermediate cells.
+		p = 256 * (y1f - y + yDelta)
+		fullDelta, fullRem := p/q, p%q
+		if fullRem < 0 {
+			fullDelta -= 1
+			fullRem += q
+		}
+		yRem -= q
+		for xi != x1i {
+			yDelta = fullDelta
+			yRem += fullRem
+			if yRem >= 0 {
+				yDelta += 1
+				yRem -= q
+			}
+			r.area += int(256 * yDelta)
+			r.cover += int(yDelta)
+			xi, y = xi+xiDelta, y+yDelta
+			r.setCell(xi, yi)
+		}
+	}
+	// Do the last cell.
+	yDelta = y1f - y
+	r.area += int((edge0 + x1f) * yDelta)
+	r.cover += int(yDelta)
+}
+
+// Start starts a new curve at the given point.
+func (r *Rasterizer) Start(a Point) {
+	r.setCell(int(a.X/256), int(a.Y/256))
+	r.a = a
+}
+
+// Move1 adds a linear segment to the current curve.
+func (r *Rasterizer) Move1(b Point) {
+	x0, y0 := r.a.X, r.a.Y
+	x1, y1 := b.X, b.Y
+	dx, dy := x1-x0, y1-y0
+	// Break the 24.8 fixed point Y co-ordinates into integral and fractional parts.
+	y0i := int(y0) / 256
+	y0f := y0 - Fixed(256*y0i)
+	y1i := int(y1) / 256
+	y1f := y1 - Fixed(256*y1i)
+
+	if y0i == y1i {
+		// There is only one scanline.
+		r.scan(y0i, x0, y0f, x1, y1f)
+	} else {
+		// There are at least two scanlines. Apart from the first and last scanlines,
+		// all intermediate scanlines go through the full height of the row, or 256
+		// units in 24.8 fixed point format.
+		var (
+			p, q, edge0, edge1 Fixed
+			yiDelta            int
+		)
+		if dy > 0 {
+			p, q = (256-y0f)*dx, dy
+			edge0, edge1, yiDelta = 0, 256, 1
+		} else {
+			p, q = y0f*dx, -dy
+			edge0, edge1, yiDelta = 256, 0, -1
+		}
+		xDelta, xRem := p/q, p%q
+		if xRem < 0 {
+			xDelta -= 1
+			xRem += q
+		}
+		// Do the first scanline.
+		x, yi := x0, y0i
+		r.scan(yi, x, y0f, x+xDelta, edge1)
+		x, yi = x+xDelta, yi+yiDelta
+		r.setCell(int(x)/256, yi)
+		if yi != y1i {
+			// Do all the intermediate scanlines.
+			p = 256 * dx
+			fullDelta, fullRem := p/q, p%q
+			if fullRem < 0 {
+				fullDelta -= 1
+				fullRem += q
+			}
+			xRem -= q
+			for yi != y1i {
+				xDelta = fullDelta
+				xRem += fullRem
+				if xRem >= 0 {
+					xDelta += 1
+					xRem -= q
+				}
+				r.scan(yi, x, edge0, x+xDelta, edge1)
+				x, yi = x+xDelta, yi+yiDelta
+				r.setCell(int(x)/256, yi)
+			}
+		}
+		// Do the last scanline.
+		r.scan(yi, x, edge0, x1, y1f)
+	}
+	// The next lineTo starts from b.
+	r.a = b
+}
+
+// Move2 adds a quadratic segment to the current curve.
+func (r *Rasterizer) Move2(b, c Point) {
+	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
+	// Specifically, how much the middle point b deviates from (a+c)/2.
+	dx := r.a.X - 2*b.X + c.X
+	dy := r.a.Y - 2*b.Y + c.Y
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	deviation := dx
+	if deviation < dy {
+		deviation = dy
+	}
+	nsplit := 0
+	deviation /= Fixed(r.quadSplitScale)
+	for deviation > 0 {
+		deviation /= 4
+		nsplit++
+	}
+	// maxd is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit is 16.
+	const maxNsplit = 16
+	if nsplit > maxNsplit {
+		panic("freetype/raster: Move2 nsplit too large: " + strconv.Itoa(nsplit))
+	}
+	// Recursively decompose the curve nSplit levels deep.
+	var (
+		pStack [2*maxNsplit + 3]Point
+		sStack [maxNsplit + 1]int
+		i      int
+	)
+	sStack[0] = nsplit
+	pStack[0] = c
+	pStack[1] = b
+	pStack[2] = r.a
+	for i >= 0 {
+		s := sStack[i]
+		if s > 0 {
+			pp := pStack[2*i:]
+			// Split the quadratic curve pp[0:3] into an equivalent set of two shorter curves:
+			// pp[0:3] and pp[2:5]. The new pp[4] is the old pp[2], and pp[0] is unchanged.
+			mx := pp[1].X
+			pp[4].X = pp[2].X
+			pp[3].X = (pp[4].X + mx) / 2
+			pp[1].X = (pp[0].X + mx) / 2
+			pp[2].X = (pp[1].X + pp[3].X) / 2
+			my := pp[1].Y
+			pp[4].Y = pp[2].Y
+			pp[3].Y = (pp[4].Y + my) / 2
+			pp[1].Y = (pp[0].Y + my) / 2
+			pp[2].Y = (pp[1].Y + pp[3].Y) / 2
+			// The two shorter curves have one less split to do.
+			sStack[i] = s - 1
+			sStack[i+1] = s - 1
+			i++
+		} else {
+			// Replace the level-0 quadratic with a two-linear-piece approximation.
+			midx := (r.a.X + 2*pStack[2*i+1].X + pStack[2*i].X) / 4
+			midy := (r.a.Y + 2*pStack[2*i+1].Y + pStack[2*i].Y) / 4
+			r.Move1(Point{midx, midy})
+			r.Move1(pStack[2*i])
+			i--
+		}
+	}
+}
+
+// Move3 adds a cubic segment to the current curve.
+func (r *Rasterizer) Move3(b, c, d Point) {
+	// TODO(nigeltao): implement cubic splines, similar to Move2's quadratic splines.
+	panic("not implemented")
+}
+
+// Converts an area value to a uint32 alpha value. A completely filled pixel
+// corresponds to an area of 256*256*2, and an alpha of 1<<32-1. The
+// conversion of area values greater than this depends on the winding rule:
+// even-odd or non-zero.
+func (r *Rasterizer) areaToAlpha(area int) uint32 {
+	// The C Freetype implementation (version 2.3.12) does "alpha := area>>1" without
+	// the +1. Round-to-nearest gives a more symmetric result than round-down.
+	// The C implementation also returns 8-bit alpha, not 32-bit alpha.
+	a := (area + 1) >> 1
+	if a < 0 {
+		a = -a
+	}
+	alpha := uint32(a)
+	if r.UseNonZeroWinding {
+		if alpha > 0xffff {
+			alpha = 0xffff
+		}
+	} else {
+		alpha &= 0x1ffff
+		if alpha > 0x10000 {
+			alpha = 0x20000 - alpha
+		} else if alpha == 0x10000 {
+			alpha = 0x0ffff
+		}
+	}
+	alpha |= alpha << 16
+	return alpha
+}
+
+// Rasterize converts r's accumulated curves into spans for p. The spans
+// passed to p are non-overlapping, and sorted by Y and then X. They all
+// have non-zero width (and 0 <= xi0 < xi1 <= r.width) and non-zero alpha,
+// except for the final span, which has yi, xi0, xi1 and alpha all equal
+// to zero.
+func (r *Rasterizer) Rasterize(p Painter) {
+	r.saveCell()
+	for yi := 0; yi < len(r.cellIndex); yi++ {
+		xi, cover := 0, 0
+		for c := r.cellIndex[yi]; c != -1; c = r.cell[c].next {
+			if cover != 0 && r.cell[c].xi > xi {
+				alpha := r.areaToAlpha(cover * 256 * 2)
+				if alpha != 0 {
+					xi0, xi1 := xi, r.cell[c].xi
+					if xi0 < 0 {
+						xi0 = 0
+					}
+					if xi1 >= r.width {
+						xi1 = r.width
+					}
+					if xi0 < xi1 {
+						p.Paint(yi, xi0, xi1, alpha)
+					}
+				}
+			}
+			cover += r.cell[c].cover
+			alpha := r.areaToAlpha(cover*256*2 - r.cell[c].area)
+			xi = r.cell[c].xi + 1
+			if alpha != 0 {
+				xi0, xi1 := r.cell[c].xi, xi
+				if xi0 < 0 {
+					xi0 = 0
+				}
+				if xi1 >= r.width {
+					xi1 = r.width
+				}
+				if xi0 < xi1 {
+					p.Paint(yi, xi0, xi1, alpha)
+				}
+			}
+		}
+	}
+	p.Paint(0, 0, 0, 0)
+}
+
+// Clear cancels any previous calls to r.Start or r.MoveN.
+func (r *Rasterizer) Clear() {
+	r.a = Point{0, 0}
+	r.xi = 0
+	r.yi = 0
+	r.area = 0
+	r.cover = 0
+	r.cell = r.cell[0:0]
+	for i := 0; i < len(r.cellIndex); i++ {
+		r.cellIndex[i] = -1
+	}
+}
+
+// Creates a new Rasterizer with the given bounds.
+func New(width, height int) *Rasterizer {
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+
+	// Use the same qss heuristic as the C Freetype implementation.
+	qss := 128
+	if width > 24 || height > 24 {
+		qss *= 2
+		if width > 120 || height > 120 {
+			qss *= 2
+		}
+	}
+
+	r := new(Rasterizer)
+	r.width = width
+	r.quadSplitScale = qss
+	r.cell = r.cellBuf[0:0]
+	if height > len(r.cellIndexBuf) {
+		r.cellIndex = make([]int, height)
+	} else {
+		r.cellIndex = r.cellIndexBuf[0:height]
+	}
+	for i := 0; i < len(r.cellIndex); i++ {
+		r.cellIndex[i] = -1
+	}
+	return r
+}
+
+// AlphaOverPainter returns a Painter that paints onto the given Alpha image
+// using the "src over dst" Porter-Duff composition operator.
+func AlphaOverPainter(m *image.Alpha) Painter {
+	return PainterFunc(func(yi, xi0, xi1 int, alpha uint32) {
+		a := int(alpha >> 24)
+		p := m.Pixel[yi]
+		for i := xi0; i < xi1; i++ {
+			ai := int(p[i].A)
+			ai = (ai*255 + (255-ai)*a) / 255
+			p[i] = image.AlphaColor{uint8(ai)}
+		}
+	})
+}
+
+// AlphaSrcPainter returns a Painter that paints onto the given Alpha image
+// using the "src" Porter-Duff composition operator.
+func AlphaSrcPainter(m *image.Alpha) Painter {
+	return PainterFunc(func(yi, xi0, xi1 int, alpha uint32) {
+		color := image.AlphaColor{uint8(alpha >> 24)}
+		p := m.Pixel[yi]
+		for i := xi0; i < xi1; i++ {
+			p[i] = color
+		}
+	})
+}
