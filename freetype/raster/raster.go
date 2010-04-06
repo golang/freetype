@@ -52,6 +52,20 @@ func (x Fixed) String() string {
 	return fmt.Sprintf("%d:%03d", i, f)
 }
 
+// maxAbs returns the maximum of abs(a) and abs(b).
+func maxAbs(a, b Fixed) Fixed {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	if a < b {
+		return b
+	}
+	return a
+}
+
 // Two-dimensional point, in 24.8 fixed point format.
 type Point struct {
 	X, Y Fixed
@@ -72,9 +86,9 @@ type Rasterizer struct {
 
 	// The width of the Rasterizer. The height is implicit in len(cellIndex).
 	width int
-	// quadSplitScale is the scaling factor used to determine how many times
-	// to decompose a quadratic segment into a linear approximation.
-	quadSplitScale int
+	// splitScaleN is the scaling factor used to determine how many times
+	// to decompose a quadratic or cubic segment into a linear approximation.
+	splitScale2, splitScale3 int
 
 	// The current pen position.
 	a Point
@@ -229,8 +243,8 @@ func (r *Rasterizer) Start(a Point) {
 	r.a = a
 }
 
-// Move1 adds a linear segment to the current curve.
-func (r *Rasterizer) Move1(b Point) {
+// Add1 adds a linear segment to the current curve.
+func (r *Rasterizer) Add1(b Point) {
 	x0, y0 := r.a.X, r.a.Y
 	x1, y1 := b.X, b.Y
 	dx, dy := x1-x0, y1-y0
@@ -296,32 +310,20 @@ func (r *Rasterizer) Move1(b Point) {
 	r.a = b
 }
 
-// Move2 adds a quadratic segment to the current curve.
-func (r *Rasterizer) Move2(b, c Point) {
+// Add2 adds a quadratic segment to the current curve.
+func (r *Rasterizer) Add2(b, c Point) {
 	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
 	// Specifically, how much the middle point b deviates from (a+c)/2.
-	dx := r.a.X - 2*b.X + c.X
-	dy := r.a.Y - 2*b.Y + c.Y
-	if dx < 0 {
-		dx = -dx
-	}
-	if dy < 0 {
-		dy = -dy
-	}
-	deviation := dx
-	if deviation < dy {
-		deviation = dy
-	}
+	dev := maxAbs(r.a.X-2*b.X+c.X, r.a.Y-2*b.Y+c.Y) / Fixed(r.splitScale2)
 	nsplit := 0
-	deviation /= Fixed(r.quadSplitScale)
-	for deviation > 0 {
-		deviation /= 4
+	for dev > 0 {
+		dev /= 4
 		nsplit++
 	}
-	// maxd is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit is 16.
+	// dev is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit is 16.
 	const maxNsplit = 16
 	if nsplit > maxNsplit {
-		panic("freetype/raster: Move2 nsplit too large: " + strconv.Itoa(nsplit))
+		panic("freetype/raster: Add2 nsplit too large: " + strconv.Itoa(nsplit))
 	}
 	// Recursively decompose the curve nSplit levels deep.
 	var (
@@ -335,39 +337,99 @@ func (r *Rasterizer) Move2(b, c Point) {
 	pStack[2] = r.a
 	for i >= 0 {
 		s := sStack[i]
+		p := pStack[2*i:]
 		if s > 0 {
-			pp := pStack[2*i:]
-			// Split the quadratic curve pp[0:3] into an equivalent set of two shorter curves:
-			// pp[0:3] and pp[2:5]. The new pp[4] is the old pp[2], and pp[0] is unchanged.
-			mx := pp[1].X
-			pp[4].X = pp[2].X
-			pp[3].X = (pp[4].X + mx) / 2
-			pp[1].X = (pp[0].X + mx) / 2
-			pp[2].X = (pp[1].X + pp[3].X) / 2
-			my := pp[1].Y
-			pp[4].Y = pp[2].Y
-			pp[3].Y = (pp[4].Y + my) / 2
-			pp[1].Y = (pp[0].Y + my) / 2
-			pp[2].Y = (pp[1].Y + pp[3].Y) / 2
+			// Split the quadratic curve p[0:3] into an equivalent set of two shorter curves:
+			// p[0:3] and p[2:5]. The new p[4] is the old p[2], and p[0] is unchanged.
+			mx := p[1].X
+			p[4].X = p[2].X
+			p[3].X = (p[4].X + mx) / 2
+			p[1].X = (p[0].X + mx) / 2
+			p[2].X = (p[1].X + p[3].X) / 2
+			my := p[1].Y
+			p[4].Y = p[2].Y
+			p[3].Y = (p[4].Y + my) / 2
+			p[1].Y = (p[0].Y + my) / 2
+			p[2].Y = (p[1].Y + p[3].Y) / 2
 			// The two shorter curves have one less split to do.
 			sStack[i] = s - 1
 			sStack[i+1] = s - 1
 			i++
 		} else {
 			// Replace the level-0 quadratic with a two-linear-piece approximation.
-			midx := (r.a.X + 2*pStack[2*i+1].X + pStack[2*i].X) / 4
-			midy := (r.a.Y + 2*pStack[2*i+1].Y + pStack[2*i].Y) / 4
-			r.Move1(Point{midx, midy})
-			r.Move1(pStack[2*i])
+			midx := (p[0].X + 2*p[1].X + p[2].X) / 4
+			midy := (p[0].Y + 2*p[1].Y + p[2].Y) / 4
+			r.Add1(Point{midx, midy})
+			r.Add1(p[0])
 			i--
 		}
 	}
 }
 
-// Move3 adds a cubic segment to the current curve.
-func (r *Rasterizer) Move3(b, c, d Point) {
-	// TODO(nigeltao): implement cubic splines, similar to Move2's quadratic splines.
-	panic("not implemented")
+// Add3 adds a cubic segment to the current curve.
+func (r *Rasterizer) Add3(b, c, d Point) {
+	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
+	dev2 := maxAbs(r.a.X-3*(b.X+c.X)+d.X, r.a.Y-3*(b.Y+c.Y)+d.Y) / Fixed(r.splitScale2)
+	dev3 := maxAbs(r.a.X-2*b.X+d.X, r.a.Y-2*b.Y+d.Y) / Fixed(r.splitScale3)
+	nsplit := 0
+	for dev2 > 0 || dev3 > 0 {
+		dev2 /= 8
+		dev3 /= 4
+		nsplit++
+	}
+	// devN is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit is 16.
+	const maxNsplit = 16
+	if nsplit > maxNsplit {
+		panic("freetype/raster: Add3 nsplit too large: " + strconv.Itoa(nsplit))
+	}
+	// Recursively decompose the curve nSplit levels deep.
+	var (
+		pStack [3*maxNsplit + 4]Point
+		sStack [maxNsplit + 1]int
+		i      int
+	)
+	sStack[0] = nsplit
+	pStack[0] = d
+	pStack[1] = c
+	pStack[2] = b
+	pStack[3] = r.a
+	for i >= 0 {
+		s := sStack[i]
+		p := pStack[3*i:]
+		if s > 0 {
+			// Split the cubic curve p[0:4] into an equivalent set of two shorter curves:
+			// p[0:4] and p[3:7]. The new p[6] is the old p[3], and p[0] is unchanged.
+			m01x := (p[0].X + p[1].X) / 2
+			m12x := (p[1].X + p[2].X) / 2
+			m23x := (p[2].X + p[3].X) / 2
+			p[6].X = p[3].X
+			p[5].X = m23x
+			p[1].X = m01x
+			p[2].X = (m01x + m12x) / 2
+			p[4].X = (m12x + m23x) / 2
+			p[3].X = (p[2].X + p[4].X) / 2
+			m01y := (p[0].Y + p[1].Y) / 2
+			m12y := (p[1].Y + p[2].Y) / 2
+			m23y := (p[2].Y + p[3].Y) / 2
+			p[6].Y = p[3].Y
+			p[5].Y = m23y
+			p[1].Y = m01y
+			p[2].Y = (m01y + m12y) / 2
+			p[4].Y = (m12y + m23y) / 2
+			p[3].Y = (p[2].Y + p[4].Y) / 2
+			// The two shorter curves have one less split to do.
+			sStack[i] = s - 1
+			sStack[i+1] = s - 1
+			i++
+		} else {
+			// Replace the level-0 cubic with a two-linear-piece approximation.
+			midx := (p[0].X + 3*(p[1].X+p[2].X) + p[3].X) / 8
+			midy := (p[0].Y + 3*(p[1].Y+p[2].Y) + p[3].Y) / 8
+			r.Add1(Point{midx, midy})
+			r.Add1(p[0])
+			i--
+		}
+	}
 }
 
 // Converts an area value to a uint32 alpha value. A completely filled pixel
@@ -444,7 +506,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 	p.Paint(0, 0, 0, 0)
 }
 
-// Clear cancels any previous calls to r.Start or r.MoveN.
+// Clear cancels any previous calls to r.Start or r.AddN.
 func (r *Rasterizer) Clear() {
 	r.a = Point{0, 0}
 	r.xi = 0
@@ -466,18 +528,21 @@ func New(width, height int) *Rasterizer {
 		height = 0
 	}
 
-	// Use the same qss heuristic as the C Freetype implementation.
-	qss := 128
+	// Use the same ssN heuristic as the C Freetype implementation.
+	// The C implementation uses the values 32, 16, but those are in
+	// 26.6 fixed point units, and we use 24.8 fixed point everywhere.
+	ss2, ss3 := 128, 64
 	if width > 24 || height > 24 {
-		qss *= 2
+		ss2, ss3 = 2*ss2, 2*ss3
 		if width > 120 || height > 120 {
-			qss *= 2
+			ss2, ss3 = 2*ss2, 2*ss3
 		}
 	}
 
 	r := new(Rasterizer)
 	r.width = width
-	r.quadSplitScale = qss
+	r.splitScale2 = ss2
+	r.splitScale3 = ss3
 	r.cell = r.cellBuf[0:0]
 	if height > len(r.cellIndexBuf) {
 		r.cellIndex = make([]int, height)

@@ -99,10 +99,10 @@ func contour(r *raster.Rasterizer, ns []node) {
 			return
 		case 1:
 			i += 1
-			r.Move1(p(ns[i]))
+			r.Add1(p(ns[i]))
 		case 2:
 			i += 2
-			r.Move2(p(ns[i-1]), p(ns[i]))
+			r.Add2(p(ns[i-1]), p(ns[i]))
 		default:
 			panic("bad degree")
 		}
