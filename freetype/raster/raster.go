@@ -17,27 +17,8 @@ package raster
 
 import (
 	"fmt"
-	"image"
 	"strconv"
 )
-
-// A Painter knows how to paint a span, and a span is a horizontal segment
-// of a certain alpha. A fully opaque span has alpha == 1<<32-1. A span's
-// alpha is non-zero until the final Paint call of the rasterization, which
-// has all arguments zero.
-// TODO(nigeltao): Is it worth batching spans, so that Paint takes a []Span
-// instead of a single Span?
-type Painter interface {
-	Paint(yi, xi0, xi1 int, alpha uint32)
-}
-
-// The PainterFunc type adapts an ordinary function to the Painter interface.
-type PainterFunc func(yi, xi0, xi1 int, alpha uint32)
-
-// Paint just delegates the call to f.
-func (f PainterFunc) Paint(yi, xi0, xi1 int, alpha uint32) {
-	f(yi, xi0, xi1, alpha)
-}
 
 // A 24.8 fixed point number.
 type Fixed int32
@@ -103,6 +84,7 @@ type Rasterizer struct {
 	// Buffers.
 	cellBuf      [256]cell
 	cellIndexBuf [64]int
+	spanBuf      [64]Span
 }
 
 // findCell returns the index in r.cell for the cell corresponding to
@@ -461,13 +443,13 @@ func (r *Rasterizer) areaToAlpha(area int) uint32 {
 	return alpha
 }
 
-// Rasterize converts r's accumulated curves into spans for p. The spans
+// Rasterize converts r's accumulated curves into Spans for p. The Spans
 // passed to p are non-overlapping, and sorted by Y and then X. They all
-// have non-zero width (and 0 <= xi0 < xi1 <= r.width) and non-zero alpha,
-// except for the final span, which has yi, xi0, xi1 and alpha all equal
-// to zero.
+// have non-zero width (and 0 <= X0 < X1 <= r.width) and non-zero A, except
+// for the final Span, which has Y, X0, X1 and A all equal to zero.
 func (r *Rasterizer) Rasterize(p Painter) {
 	r.saveCell()
+	s := 0
 	for yi := 0; yi < len(r.cellIndex); yi++ {
 		xi, cover := 0, 0
 		for c := r.cellIndex[yi]; c != -1; c = r.cell[c].next {
@@ -482,7 +464,8 @@ func (r *Rasterizer) Rasterize(p Painter) {
 						xi1 = r.width
 					}
 					if xi0 < xi1 {
-						p.Paint(yi, xi0, xi1, alpha)
+						r.spanBuf[s] = Span{yi, xi0, xi1, alpha}
+						s++
 					}
 				}
 			}
@@ -498,12 +481,19 @@ func (r *Rasterizer) Rasterize(p Painter) {
 					xi1 = r.width
 				}
 				if xi0 < xi1 {
-					p.Paint(yi, xi0, xi1, alpha)
+					r.spanBuf[s] = Span{yi, xi0, xi1, alpha}
+					s++
 				}
+			}
+			if s > len(r.spanBuf)-2 {
+				p.Paint(r.spanBuf[0:s])
+				s = 0
 			}
 		}
 	}
-	p.Paint(0, 0, 0, 0)
+	r.spanBuf[s] = Span{}
+	s++
+	p.Paint(r.spanBuf[0:s])
 }
 
 // Clear cancels any previous calls to r.Start or r.AddN.
@@ -553,30 +543,4 @@ func New(width, height int) *Rasterizer {
 		r.cellIndex[i] = -1
 	}
 	return r
-}
-
-// AlphaOverPainter returns a Painter that paints onto the given Alpha image
-// using the "src over dst" Porter-Duff composition operator.
-func AlphaOverPainter(m *image.Alpha) Painter {
-	return PainterFunc(func(yi, xi0, xi1 int, alpha uint32) {
-		a := int(alpha >> 24)
-		p := m.Pixel[yi]
-		for i := xi0; i < xi1; i++ {
-			ai := int(p[i].A)
-			ai = (ai*255 + (255-ai)*a) / 255
-			p[i] = image.AlphaColor{uint8(ai)}
-		}
-	})
-}
-
-// AlphaSrcPainter returns a Painter that paints onto the given Alpha image
-// using the "src" Porter-Duff composition operator.
-func AlphaSrcPainter(m *image.Alpha) Painter {
-	return PainterFunc(func(yi, xi0, xi1 int, alpha uint32) {
-		color := image.AlphaColor{uint8(alpha >> 24)}
-		p := m.Pixel[yi]
-		for i := xi0; i < xi1; i++ {
-			p[i] = color
-		}
-	})
 }

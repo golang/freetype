@@ -7,6 +7,7 @@ include $(GOROOT)/src/Make.$(GOARCH)
 
 TARG=freetype-go.googlecode.com/hg/freetype/raster
 GOFILES=\
+	paint.go\
 	raster.go\
 
 include $(GOROOT)/src/Make.pkg
