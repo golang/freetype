@@ -1,0 +1,12 @@
+The *.ttf and COPYING files in this directory were copied from the X.org
+project, specifically
+http://xorg.freedesktop.org/releases/individual/font/font-bh-ttf-1.0.0.tar.bz2
+
+There are three typefaces: sans (s), serif (r) and monospaced (m). Each
+typeface has four fonts: regular (r) and bold (b), and roman and italic (i).
+For example, luxisb.ttf is sans, bold and roman.
+
+The *.ttx files in this directory were generated from the *.ttf files
+by the ttx command-line tool.
+http://www.letterror.com/code/ttx/index.html
+
