@@ -239,6 +239,43 @@ func (r *Rasterizer) Add1(b Point) {
 	if y0i == y1i {
 		// There is only one scanline.
 		r.scan(y0i, x0, y0f, x1, y1f)
+
+	} else if dx == 0 {
+		// This is a vertical line segment. We avoid calling r.scan and instead
+		// manipulate r.area and r.cover directly.
+		var (
+			edge0, edge1 Fixed
+			yiDelta      int
+		)
+		if dy > 0 {
+			edge0, edge1, yiDelta = 0, 256, 1
+		} else {
+			edge0, edge1, yiDelta = 256, 0, -1
+		}
+		x0i, yi := int(x0)/256, y0i
+		x0fTimes2 := (int(x0) - (256 * x0i)) * 2
+		// Do the first pixel.
+		dcover := int(edge1 - y0f)
+		darea := int(x0fTimes2 * dcover)
+		r.area += darea
+		r.cover += dcover
+		yi += yiDelta
+		r.setCell(x0i, yi)
+		// Do all the intermediate pixels.
+		dcover = int(edge1 - edge0)
+		darea = int(x0fTimes2 * dcover)
+		for yi != y1i {
+			r.area += darea
+			r.cover += dcover
+			yi += yiDelta
+			r.setCell(x0i, yi)
+		}
+		// Do the last pixel.
+		dcover = int(y1f - edge0)
+		darea = int(x0fTimes2 * dcover)
+		r.area += darea
+		r.cover += dcover
+
 	} else {
 		// There are at least two scanlines. Apart from the first and last scanlines,
 		// all intermediate scanlines go through the full height of the row, or 256
