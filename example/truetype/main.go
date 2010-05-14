@@ -20,7 +20,7 @@ func printBounds(b truetype.Bounds) {
 	fmt.Printf("XMin:%d YMin:%d XMax:%d YMax:%d\n", b.XMin, b.YMin, b.XMax, b.YMax)
 }
 
-func printGlyph(g *truetype.Glyph) {
+func printGlyph(g *truetype.GlyphBuf) {
 	printBounds(g.B)
 	fmt.Print("Points:\n---\n")
 	e := 0
@@ -58,7 +58,7 @@ func main() {
 
 	i0 := font.Index(c0)
 	hm := font.HMetric(i0)
-	g := truetype.NewGlyph()
+	g := truetype.NewGlyphBuf()
 	err = g.Load(font, i0)
 	if err != nil {
 		log.Stderr(err)

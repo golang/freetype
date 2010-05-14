@@ -52,7 +52,7 @@ type Point struct {
 	X, Y Fixed
 }
 
-// A cell is part of a linked list (for a given yi coordinate) of accumulated
+// A cell is part of a linked list (for a given yi co-ordinate) of accumulated
 // area/coverage for the pixel at (xi, yi).
 type cell struct {
 	xi          int
@@ -546,15 +546,15 @@ func (r *Rasterizer) Clear() {
 	}
 }
 
-// Creates a new Rasterizer with the given bounds.
-func New(width, height int) *Rasterizer {
+// SetBounds sets the maximum width and height of the rasterized image and
+// calls Clear. The width and height are in pixels, not Fixed units.
+func (r *Rasterizer) SetBounds(width, height int) {
 	if width < 0 {
 		width = 0
 	}
 	if height < 0 {
 		height = 0
 	}
-
 	// Use the same ssN heuristic as the C Freetype implementation.
 	// The C implementation uses the values 32, 16, but those are in
 	// 26.6 fixed point units, and we use 24.8 fixed point everywhere.
@@ -565,8 +565,6 @@ func New(width, height int) *Rasterizer {
 			ss2, ss3 = 2*ss2, 2*ss3
 		}
 	}
-
-	r := new(Rasterizer)
 	r.width = width
 	r.splitScale2 = ss2
 	r.splitScale3 = ss3
@@ -576,8 +574,12 @@ func New(width, height int) *Rasterizer {
 	} else {
 		r.cellIndex = r.cellIndexBuf[0:height]
 	}
-	for i := 0; i < len(r.cellIndex); i++ {
-		r.cellIndex[i] = -1
-	}
+	r.Clear()
+}
+
+// NewRasterizer creates a new Rasterizer with the given bounds.
+func NewRasterizer(width, height int) *Rasterizer {
+	r := new(Rasterizer)
+	r.SetBounds(width, height)
 	return r
 }

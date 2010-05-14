@@ -6,6 +6,7 @@
 package raster
 
 import (
+	"exp/draw"
 	"image"
 	"math"
 )
@@ -33,46 +34,138 @@ type PainterFunc func(ss []Span)
 // Paint just delegates the call to f.
 func (f PainterFunc) Paint(ss []Span) { f(ss) }
 
-// AlphaOverPainter returns a Painter that paints onto the given Alpha image
-// using the "src over dst" Porter-Duff composition operator.
-func AlphaOverPainter(m *image.Alpha) Painter {
-	return PainterFunc(func(ss []Span) {
-		for _, s := range ss {
+// An AlphaPainter is a Painter that paints Spans onto an image.Alpha.
+type AlphaPainter struct {
+	// The image to compose onto.
+	Image *image.Alpha
+	// The Porter-Duff composition operator.
+	Op draw.Op
+	// An offset (in pixels) to the painted spans.
+	Dx, Dy int
+}
+
+// Paint satisfies the Painter interface by painting ss onto an image.Alpha.
+func (r *AlphaPainter) Paint(ss []Span) {
+	for _, s := range ss {
+		y := r.Dy + s.Y
+		if y < 0 {
+			continue
+		}
+		if y >= len(r.Image.Pixel) {
+			return
+		}
+		p := r.Image.Pixel[y]
+		x0, x1 := r.Dx+s.X0, r.Dx+s.X1
+		if x0 < 0 {
+			x0 = 0
+		}
+		if x1 > len(p) {
+			x1 = len(p)
+		}
+		if r.Op == draw.Over {
 			a := int(s.A >> 24)
-			p := m.Pixel[s.Y]
-			for i := s.X0; i < s.X1; i++ {
-				ai := int(p[i].A)
-				ai = (ai*255 + (255-ai)*a) / 255
-				p[i] = image.AlphaColor{uint8(ai)}
+			for x := x0; x < x1; x++ {
+				ax := int(p[x].A)
+				ax = (ax*255 + (255-ax)*a) / 255
+				p[x] = image.AlphaColor{uint8(ax)}
 			}
-		}
-	})
-}
-
-// AlphaSrcPainter returns a Painter that paints onto the given Alpha image
-// using the "src" Porter-Duff composition operator.
-func AlphaSrcPainter(m *image.Alpha) Painter {
-	return PainterFunc(func(ss []Span) {
-		for _, s := range ss {
+		} else {
 			color := image.AlphaColor{uint8(s.A >> 24)}
-			p := m.Pixel[s.Y]
-			for i := s.X0; i < s.X1; i++ {
-				p[i] = color
+			for x := x0; x < x1; x++ {
+				p[x] = color
 			}
 		}
-	})
+	}
 }
 
-// A monochromePainter has a wrapped painter and an accumulator for merging
-// adjacent opaque Spans.
-type monochromePainter struct {
-	p         Painter
+// NewAlphaPainter creates a new AlphaPainter for the given image.
+func NewAlphaPainter(m *image.Alpha) *AlphaPainter {
+	return &AlphaPainter{Image: m}
+}
+
+type RGBAPainter struct {
+	// The image to compose onto.
+	Image *image.RGBA
+	// The Porter-Duff composition operator.
+	Op draw.Op
+	// An offset (in pixels) to the painted spans.
+	Dx, Dy int
+	// The 16-bit color to paint the spans.
+	cr, cg, cb, ca uint32
+}
+
+// Paint satisfies the Painter interface by painting ss onto an image.RGBA.
+func (r *RGBAPainter) Paint(ss []Span) {
+	for _, s := range ss {
+		y := r.Dy + s.Y
+		if y < 0 {
+			continue
+		}
+		if y >= len(r.Image.Pixel) {
+			return
+		}
+		p := r.Image.Pixel[y]
+		x0, x1 := r.Dx+s.X0, r.Dx+s.X1
+		if x0 < 0 {
+			x0 = 0
+		}
+		if x1 > len(p) {
+			x1 = len(p)
+		}
+		for x := x0; x < x1; x++ {
+			// This code is duplicated from drawGlyphOver in $GOROOT/src/pkg/exp/draw/draw.go.
+			// TODO(nigeltao): Factor out common code into a utility function, once the compiler
+			// can inline such function calls.
+			ma := s.A >> 16
+			const M = 1<<16 - 1
+			if r.Op == draw.Over {
+				rgba := p[x]
+				dr := uint32(rgba.R)
+				dg := uint32(rgba.G)
+				db := uint32(rgba.B)
+				da := uint32(rgba.A)
+				a := M - (r.ca * ma / M)
+				a *= 0x101
+				dr = (dr*a + r.cr*ma) / M
+				dg = (dg*a + r.cg*ma) / M
+				db = (db*a + r.cb*ma) / M
+				da = (da*a + r.ca*ma) / M
+				p[x] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
+			} else {
+				dr := r.cr * ma / M
+				dg := r.cg * ma / M
+				db := r.cb * ma / M
+				da := r.ca * ma / M
+				p[x] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
+			}
+		}
+	}
+}
+
+// SetColor sets the color to paint the spans.
+func (r *RGBAPainter) SetColor(c image.Color) {
+	r.cr, r.cg, r.cb, r.ca = c.RGBA()
+	r.cr >>= 16
+	r.cg >>= 16
+	r.cb >>= 16
+	r.ca >>= 16
+}
+
+// NewRGBAPainter creates a new RGBAPainter for the given image.
+func NewRGBAPainter(m *image.RGBA) *RGBAPainter {
+	return &RGBAPainter{Image: m}
+}
+
+// A MonochromePainter wraps another Painter, quantizing each Span's alpha to
+// be either fully opaque or fully transparent.
+type MonochromePainter struct {
+	Painter   Painter
 	y, x0, x1 int
 }
 
 // Paint delegates to the wrapped Painter after quantizing each Span's alpha
-// values and merging adjacent fully opaque Spans.
-func (m *monochromePainter) Paint(ss []Span) {
+// value and merging adjacent fully opaque Spans.
+func (m *MonochromePainter) Paint(ss []Span) {
 	// We compact the ss slice, discarding any Spans whose alpha quantizes to zero.
 	j := 0
 	for _, s := range ss {
@@ -93,11 +186,11 @@ func (m *monochromePainter) Paint(ss []Span) {
 			if j < len(ss) {
 				ss[j] = Span{}
 				j++
-				m.p.Paint(ss[0:j])
+				m.Painter.Paint(ss[0:j])
 			} else if j == len(ss) {
-				m.p.Paint(ss)
+				m.Painter.Paint(ss)
 				ss[0] = Span{}
-				m.p.Paint(ss[0:1])
+				m.Painter.Paint(ss[0:1])
 			} else {
 				panic("unreachable")
 			}
@@ -106,25 +199,27 @@ func (m *monochromePainter) Paint(ss []Span) {
 			return
 		}
 	}
-	m.p.Paint(ss[0:j])
+	m.Painter.Paint(ss[0:j])
 }
 
-// A MonochromePainter wraps another Painter, quantizing each Span's alpha to
-// be either fully opaque or fully transparent.
-func MonochromePainter(p Painter) Painter {
-	return &monochromePainter{p: p}
+// NewMonochromePainter creates a new MonochromePainter that wraps the given
+// Painter.
+func NewMonochromePainter(p Painter) *MonochromePainter {
+	return &MonochromePainter{Painter: p}
 }
 
-// A gammaCorrectionPainter has a wrapped painter and a precomputed linear
-// interpolation of the exponential gamma-correction curve.
-type gammaCorrectionPainter struct {
-	p Painter
-	a [256]uint16 // Alpha values, with fully opaque == 1<<16-1.
+// A GammaCorrectionPainter wraps another Painter, performing gamma-correction
+// on each Span's alpha value.
+type GammaCorrectionPainter struct {
+	// The wrapped Painter.
+	Painter Painter
+	// Precomputed alpha values for linear interpolation, with fully opaque == 1<<16-1.
+	a [256]uint16
 }
 
 // Paint delegates to the wrapped Painter after performing gamma-correction
 // on each Span.
-func (g *gammaCorrectionPainter) Paint(ss []Span) {
+func (g *GammaCorrectionPainter) Paint(ss []Span) {
 	const (
 		M = 0x1010101 // 255*M == 1<<32-1
 		N = 0x8080    // N = M>>9, and N < 1<<16-1
@@ -145,17 +240,22 @@ func (g *gammaCorrectionPainter) Paint(ss []Span) {
 		}
 		ss[i].A = a
 	}
-	g.p.Paint(ss)
+	g.Painter.Paint(ss)
 }
 
-// A GammaCorrectionPainter wraps another Painter, performing gamma-correction
-// on the alpha values of each Span.
-func GammaCorrectionPainter(p Painter, gamma float64) Painter {
-	g := &gammaCorrectionPainter{p: p}
+// SetGamma sets the gamma value.
+func (g *GammaCorrectionPainter) SetGamma(gamma float64) {
 	for i := 0; i < 256; i++ {
 		a := float64(i) / 0xff
 		a = math.Pow(a, gamma)
 		g.a[i] = uint16(0xffff * a)
 	}
+}
+
+// NewGammaCorrectionPainter creates a new GammaCorrectionPainter that wraps
+// the given Painter.
+func NewGammaCorrectionPainter(p Painter, gamma float64) *GammaCorrectionPainter {
+	g := &GammaCorrectionPainter{Painter: p}
+	g.SetGamma(gamma)
 	return g
 }

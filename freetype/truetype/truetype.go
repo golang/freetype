@@ -418,9 +418,9 @@ type Point struct {
 	Flags uint8
 }
 
-// A Glyph holds a glyph's contours. A Glyph can be re-used to load a series
-// of glyphs from a Font.
-type Glyph struct {
+// A GlyphBuf holds a glyph's contours. A GlyphBuf can be re-used to load a
+// series of glyphs from a Font.
+type GlyphBuf struct {
 	// The glyph's bounding box.
 	B Bounds
 	// Point contains all Points from all contours of the glyph.
@@ -433,7 +433,7 @@ type Glyph struct {
 
 // decodeFlags decodes a glyph's run-length encoded flags,
 // and returns the remaining data.
-func (g *Glyph) decodeFlags(d data) data {
+func (g *GlyphBuf) decodeFlags(d data) data {
 	for i := 0; i < len(g.Point); {
 		c := d.u8()
 		g.Point[i].Flags = c
@@ -450,7 +450,7 @@ func (g *Glyph) decodeFlags(d data) data {
 }
 
 // decodeCoords decodes a glyph's delta encoded co-ordinates.
-func (g *Glyph) decodeCoords(d data) {
+func (g *GlyphBuf) decodeCoords(d data) {
 	var x int16
 	for i := 0; i < len(g.Point); i++ {
 		f := g.Point[i].Flags
@@ -484,9 +484,9 @@ func (g *Glyph) decodeCoords(d data) {
 }
 
 // Load loads a glyph's contours from a Font, overwriting any previously
-// loaded contours for this Glyph.
-func (g *Glyph) Load(f *Font, i Index) os.Error {
-	// Reset the Glyph.
+// loaded contours for this GlyphBuf.
+func (g *GlyphBuf) Load(f *Font, i Index) os.Error {
+	// Reset the GlyphBuf.
 	g.B = Bounds{}
 	g.Point = g.Point[0:0]
 	g.End = g.End[0:0]
@@ -537,9 +537,9 @@ func (g *Glyph) Load(f *Font, i Index) os.Error {
 	return nil
 }
 
-// NewGlyph returns a newly allocated Glyph.
-func NewGlyph() *Glyph {
-	g := new(Glyph)
+// NewGlyphBuf returns a newly allocated GlyphBuf.
+func NewGlyphBuf() *GlyphBuf {
+	g := new(GlyphBuf)
 	g.Point = make([]Point, 0, 256)
 	g.End = make([]int, 0, 32)
 	return g

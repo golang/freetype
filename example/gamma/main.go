@@ -31,7 +31,7 @@ func clear(m *image.Alpha) {
 
 func main() {
 	// Draw a rounded corner that is one pixel wide.
-	r := raster.New(50, 50)
+	r := raster.NewRasterizer(50, 50)
 	r.Start(p(5, 5))
 	r.Add1(p(5, 25))
 	r.Add2(p(5, 45), p(25, 45))
@@ -51,11 +51,12 @@ func main() {
 	draw.Draw(rgba, draw.Rect(0, 0, w, h/2), image.Black, draw.ZP)
 	draw.Draw(rgba, draw.Rect(0, h/2, w, h), image.White, draw.ZP)
 	mask := image.NewAlpha(50, 50)
-	painter := raster.AlphaSrcPainter(mask)
+	painter := raster.NewAlphaPainter(mask)
+	painter.Op = draw.Src
 	gammas := []float64{1.0 / 10.0, 1.0 / 3.0, 1.0 / 2.0, 2.0 / 3.0, 4.0 / 5.0, 1.0, 5.0 / 4.0, 3.0 / 2.0, 2.0, 3.0, 10.0}
 	for i, g := range gammas {
 		clear(mask)
-		r.Rasterize(raster.GammaCorrectionPainter(painter, g))
+		r.Rasterize(raster.NewGammaCorrectionPainter(painter, g))
 		x, y := 50*i+25, 25
 		draw.DrawMask(rgba, draw.Rect(x, y, x+50, y+50), image.White, draw.ZP, mask, draw.ZP, draw.Over)
 		y += 100
