@@ -53,7 +53,7 @@ func main() {
 	mask := image.NewAlpha(50, 50)
 	painter := raster.NewAlphaPainter(mask)
 	painter.Op = draw.Src
-	gammas := []float64{1.0 / 10.0, 1.0 / 3.0, 1.0 / 2.0, 2.0 / 3.0, 4.0 / 5.0, 1.0, 5.0 / 4.0, 3.0 / 2.0, 2.0, 3.0, 10.0}
+	gammas := []float{1.0 / 10.0, 1.0 / 3.0, 1.0 / 2.0, 2.0 / 3.0, 4.0 / 5.0, 1.0, 5.0 / 4.0, 3.0 / 2.0, 2.0, 3.0, 10.0}
 	for i, g := range gammas {
 		clear(mask)
 		r.Rasterize(raster.NewGammaCorrectionPainter(painter, g))

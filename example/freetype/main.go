@@ -16,6 +16,7 @@ import (
 var (
 	dpi      = flag.Int("dpi", 72, "screen resolution in Dots Per Inch")
 	fontfile = flag.String("fontfile", "../../luxi-fonts/luxisr.ttf", "filename of the ttf font")
+	gamma    = flag.Float("gamma", 1.0, "gamma correction")
 	size     = flag.Float("size", 12, "font size in points")
 	spacing  = flag.Float("spacing", 1.5, "line spacing (e.g. 2 means double spaced)")
 	wonb     = flag.Bool("whiteonblack", false, "white text on a black background")
@@ -87,6 +88,7 @@ func main() {
 	c.SetDPI(*dpi)
 	c.SetFont(font)
 	c.SetFontSize(*size)
+	c.SetGamma(*gamma)
 
 	// Draw the guidelines.
 	for i := 0; i < 200; i++ {

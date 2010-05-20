@@ -32,7 +32,8 @@ func Pt(x, y int) raster.Point {
 // given size.
 type RGBAContext struct {
 	r        *raster.Rasterizer
-	p        *raster.RGBAPainter
+	rp       *raster.RGBAPainter
+	gp       *raster.GammaCorrectionPainter
 	font     *truetype.Font
 	glyphBuf *truetype.GlyphBuf
 	fontSize float
@@ -144,7 +145,7 @@ func (c *RGBAContext) DrawText(pt raster.Point, s string) (err os.Error) {
 	advance, x0 := 0, pt.X
 	dx := raster.Fixed(-c.xmin << 8)
 	dy := raster.Fixed(-c.ymin << 8)
-	c.p.Dy, y = c.ymin+int(pt.Y>>8), pt.Y&0xff
+	c.rp.Dy, y = c.ymin+int(pt.Y>>8), pt.Y&0xff
 	y += dy
 	prev, hasPrev := truetype.Index(0), false
 	for _, ch := range s {
@@ -169,7 +170,7 @@ func (c *RGBAContext) DrawText(pt raster.Point, s string) (err os.Error) {
 		x = x0 + c.FUnitToFixed(advance)
 		// Break the co-ordinate down into an integer pixel part and a
 		// sub-pixel part, making sure that the latter is non-negative.
-		c.p.Dx, x = c.xmin+int(x>>8), x&0xff
+		c.rp.Dx, x = c.xmin+int(x>>8), x&0xff
 		x += dx
 		// Draw the contours.
 		c.r.Clear()
@@ -178,7 +179,7 @@ func (c *RGBAContext) DrawText(pt raster.Point, s string) (err os.Error) {
 			c.drawContour(c.glyphBuf.Point[e0:e], x, y)
 			e0 = e
 		}
-		c.r.Rasterize(c.p)
+		c.r.Rasterize(c.gp)
 		// Advance the cursor.
 		advance += int(c.font.HMetric(index).AdvanceWidth)
 		prev, hasPrev = index, true
@@ -204,7 +205,7 @@ func (c *RGBAContext) recalc() {
 
 // SetColor sets the color to draw text.
 func (c *RGBAContext) SetColor(color image.Color) {
-	c.p.SetColor(color)
+	c.rp.SetColor(color)
 }
 
 // SetDPI sets the screen resolution in dots per inch.
@@ -229,20 +230,27 @@ func (c *RGBAContext) SetFontSize(fontSize float) {
 	c.recalc()
 }
 
+// SetGamma sets the gamma correction parameter.
+func (c *RGBAContext) SetGamma(g float) {
+	c.gp.SetGamma(g)
+}
+
 // SetRGBA sets the image that the RGBAContext draws onto.
 func (c *RGBAContext) SetRGBA(m *image.RGBA) {
-	c.p.Image = m
+	c.rp.Image = m
 }
 
 // NewRGBAContext creates a new RGBAContext.
 func NewRGBAContext(m *image.RGBA) *RGBAContext {
-	return &RGBAContext{
+	c := &RGBAContext{
 		r:        raster.NewRasterizer(0, 0),
-		p:        raster.NewRGBAPainter(m),
+		rp:       raster.NewRGBAPainter(m),
 		glyphBuf: truetype.NewGlyphBuf(),
 		fontSize: 12,
 		dpi:      72,
 		upe:      2048,
 		scale:    (12 * 72 * 256 * 256) / (2048 * 72),
 	}
+	c.gp = raster.NewGammaCorrectionPainter(c.rp, 1.0)
+	return c
 }

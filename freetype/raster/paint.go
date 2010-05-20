@@ -215,46 +215,56 @@ type GammaCorrectionPainter struct {
 	Painter Painter
 	// Precomputed alpha values for linear interpolation, with fully opaque == 1<<16-1.
 	a [256]uint16
+	// Whether gamma correction is a no-op.
+	gammaIsOne bool
 }
 
 // Paint delegates to the wrapped Painter after performing gamma-correction
 // on each Span.
 func (g *GammaCorrectionPainter) Paint(ss []Span) {
-	const (
-		M = 0x1010101 // 255*M == 1<<32-1
-		N = 0x8080    // N = M>>9, and N < 1<<16-1
-	)
-	for i, _ := range ss {
-		if ss[i].A == 0 || ss[i].A == 1<<32-1 {
-			continue
+	if !g.gammaIsOne {
+		const (
+			M = 0x1010101 // 255*M == 1<<32-1
+			N = 0x8080    // N = M>>9, and N < 1<<16-1
+		)
+		for i, _ := range ss {
+			if ss[i].A == 0 || ss[i].A == 1<<32-1 {
+				continue
+			}
+			p, q := ss[i].A/M, (ss[i].A%M)>>9
+			// The resultant alpha is a linear interpolation of g.a[p] and g.a[p+1].
+			a := uint32(g.a[p])*(N-q) + uint32(g.a[p+1])*q
+			a = (a + N/2) / N
+			// Convert the alpha from 16-bit (which is g.a's range) to 32-bit.
+			a |= a << 16
+			// A non-final Span can't have zero alpha.
+			if a == 0 {
+				a = 1
+			}
+			ss[i].A = a
 		}
-		p, q := ss[i].A/M, (ss[i].A%M)>>9
-		// The resultant alpha is a linear interpolation of g.a[p] and g.a[p+1].
-		a := uint32(g.a[p])*(N-q) + uint32(g.a[p+1])*q
-		a = (a + N/2) / N
-		// Convert the alpha from 16-bit (which is g.a's range) to 32-bit.
-		a |= a << 16
-		// A non-final Span can't have zero alpha.
-		if a == 0 {
-			a = 1
-		}
-		ss[i].A = a
 	}
 	g.Painter.Paint(ss)
 }
 
 // SetGamma sets the gamma value.
-func (g *GammaCorrectionPainter) SetGamma(gamma float64) {
+func (g *GammaCorrectionPainter) SetGamma(gamma float) {
+	if gamma == 1.0 {
+		g.gammaIsOne = true
+		return
+	}
+	g.gammaIsOne = false
+	gamma64 := float64(gamma)
 	for i := 0; i < 256; i++ {
 		a := float64(i) / 0xff
-		a = math.Pow(a, gamma)
+		a = math.Pow(a, gamma64)
 		g.a[i] = uint16(0xffff * a)
 	}
 }
 
 // NewGammaCorrectionPainter creates a new GammaCorrectionPainter that wraps
 // the given Painter.
-func NewGammaCorrectionPainter(p Painter, gamma float64) *GammaCorrectionPainter {
+func NewGammaCorrectionPainter(p Painter, gamma float) *GammaCorrectionPainter {
 	g := &GammaCorrectionPainter{Painter: p}
 	g.SetGamma(gamma)
 	return g
