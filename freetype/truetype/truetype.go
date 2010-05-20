@@ -431,14 +431,32 @@ type GlyphBuf struct {
 	End []int
 }
 
+// Flags for decoding a glyph's contours. These flags are documented at
+// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
+const (
+	flagOnCurve = 1 << iota
+	flagXShortVector
+	flagYShortVector
+	flagRepeat
+	flagPositiveXShortVector
+	flagPositiveYShortVector
+)
+
+// The same flag bits (0x10 and 0x20) are overloaded to have two meanings,
+// dependent on the value of the flag{X,Y}ShortVector bits.
+const (
+	flagThisXIsSame = flagPositiveXShortVector
+	flagThisYIsSame = flagPositiveYShortVector
+)
+
 // decodeFlags decodes a glyph's run-length encoded flags,
 // and returns the remaining data.
-func (g *GlyphBuf) decodeFlags(d data) data {
-	for i := 0; i < len(g.Point); {
+func (g *GlyphBuf) decodeFlags(d data, np0 int) data {
+	for i := np0; i < len(g.Point); {
 		c := d.u8()
 		g.Point[i].Flags = c
 		i++
-		if c&0x08 != 0 {
+		if c&flagRepeat != 0 {
 			count := d.u8()
 			for ; count > 0; count-- {
 				g.Point[i].Flags = c
@@ -450,33 +468,33 @@ func (g *GlyphBuf) decodeFlags(d data) data {
 }
 
 // decodeCoords decodes a glyph's delta encoded co-ordinates.
-func (g *GlyphBuf) decodeCoords(d data) {
+func (g *GlyphBuf) decodeCoords(d data, np0 int) {
 	var x int16
-	for i := 0; i < len(g.Point); i++ {
+	for i := np0; i < len(g.Point); i++ {
 		f := g.Point[i].Flags
-		if f&0x02 != 0 {
+		if f&flagXShortVector != 0 {
 			dx := int16(d.u8())
-			if f&0x10 == 0 {
+			if f&flagPositiveXShortVector == 0 {
 				x -= dx
 			} else {
 				x += dx
 			}
-		} else if f&0x10 == 0 {
+		} else if f&flagThisXIsSame == 0 {
 			x += int16(d.u16())
 		}
 		g.Point[i].X = x
 	}
 	var y int16
-	for i := 0; i < len(g.Point); i++ {
+	for i := np0; i < len(g.Point); i++ {
 		f := g.Point[i].Flags
-		if f&0x04 != 0 {
+		if f&flagYShortVector != 0 {
 			dy := int16(d.u8())
-			if f&0x20 == 0 {
+			if f&flagPositiveYShortVector == 0 {
 				y -= dy
 			} else {
 				y += dy
 			}
-		} else if f&0x20 == 0 {
+		} else if f&flagThisYIsSame == 0 {
 			y += int16(d.u16())
 		}
 		g.Point[i].Y = y
@@ -490,6 +508,64 @@ func (g *GlyphBuf) Load(f *Font, i Index) os.Error {
 	g.B = Bounds{}
 	g.Point = g.Point[0:0]
 	g.End = g.End[0:0]
+	return g.load(f, i, 0)
+}
+
+// loadCompound loads a glyph that is composed of other glyphs.
+func (g *GlyphBuf) loadCompound(f *Font, d data, recursion int) os.Error {
+	// Flags for decoding a compound glyph. These flags are documented at
+	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
+	const (
+		flagArg1And2AreWords = 1 << iota
+		flagArgsAreXYValues
+		flagRoundXYToGrid
+		flagWeHaveAScale
+		flagUnused
+		flagMoreComponents
+		flagWeHaveAnXAndYScale
+		flagWeHaveATwoByTwo
+		flagWeHaveInstructions
+		flagUseMyMetrics
+		flagOverlapCompound
+	)
+	for {
+		flags := d.u16()
+		component := d.u16()
+		var dx, dy int16
+		if flags&flagArg1And2AreWords != 0 {
+			dx = int16(d.u16())
+			dy = int16(d.u16())
+		} else {
+			dx = int16(int8(d.u8()))
+			dy = int16(int8(d.u8()))
+		}
+		if flags&flagArgsAreXYValues == 0 {
+			return UnsupportedError("compound glyph transform vector")
+		}
+		if flags&(flagWeHaveAScale|flagWeHaveAnXAndYScale|flagWeHaveATwoByTwo) != 0 {
+			return UnsupportedError("compound glyph scale/transform")
+		}
+		b0, i0 := g.B, len(g.Point)
+		g.load(f, Index(component), recursion+1)
+		for i := i0; i < len(g.Point); i++ {
+			g.Point[i].X += dx
+			g.Point[i].Y += dy
+		}
+		if flags&flagUseMyMetrics == 0 {
+			g.B = b0
+		}
+		if flags&flagMoreComponents == 0 {
+			break
+		}
+	}
+	return nil
+}
+
+// load appends a glyph's contours to this GlyphBuf.
+func (g *GlyphBuf) load(f *Font, i Index, recursion int) os.Error {
+	if recursion >= 4 {
+		return UnsupportedError("excessive compound glyph recursion")
+	}
 	// Find the relevant slice of f.glyf.
 	var g0, g1 uint32
 	if f.locaOffsetFormat == locaOffsetFormatShort {
@@ -506,21 +582,27 @@ func (g *GlyphBuf) Load(f *Font, i Index) os.Error {
 	}
 	d := data(f.glyf[g0:g1])
 	// Decode the contour end indices.
-	ne := int(d.u16())
-	if ne == 1<<16-1 {
-		return UnsupportedError("compound glyph")
-	}
+	ne := int(int16(d.u16()))
 	g.B.XMin = int16(d.u16())
 	g.B.YMin = int16(d.u16())
 	g.B.XMax = int16(d.u16())
 	g.B.YMax = int16(d.u16())
+	if ne == -1 {
+		return g.loadCompound(f, d, recursion)
+	} else if ne < 0 {
+		// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
+		// "the values -2, -3, and so forth, are reserved for future use."
+		return UnsupportedError("negative number of contours")
+	}
+	ne0, np0 := len(g.End), len(g.Point)
+	ne += ne0
 	if ne <= cap(g.End) {
 		g.End = g.End[0:ne]
 	} else {
 		g.End = make([]int, ne, ne*2)
 	}
-	for i := 0; i < ne; i++ {
-		g.End[i] = 1 + int(d.u16())
+	for i := ne0; i < ne; i++ {
+		g.End[i] = 1 + np0 + int(d.u16())
 	}
 	// Skip the TrueType hinting instructions.
 	instrLen := int(d.u16())
@@ -532,8 +614,8 @@ func (g *GlyphBuf) Load(f *Font, i Index) os.Error {
 	} else {
 		g.Point = make([]Point, np, np*2)
 	}
-	d = g.decodeFlags(d)
-	g.decodeCoords(d)
+	d = g.decodeFlags(d, np0)
+	g.decodeCoords(d, np0)
 	return nil
 }
 
