@@ -523,14 +523,12 @@ func (r *Rasterizer) Rasterize(p Painter) {
 				}
 			}
 			if s > len(r.spanBuf)-2 {
-				p.Paint(r.spanBuf[0:s])
+				p.Paint(r.spanBuf[0:s], false)
 				s = 0
 			}
 		}
 	}
-	r.spanBuf[s] = Span{}
-	s++
-	p.Paint(r.spanBuf[0:s])
+	p.Paint(r.spanBuf[0:s], true)
 }
 
 // Clear cancels any previous calls to r.Start or r.AddN.

@@ -19,20 +19,19 @@ type Span struct {
 	A         uint32
 }
 
-// A Painter knows how to paint a batch of Spans. A Span's alpha is non-zero
-// until the final Span of the rasterization, which is the zero value Span.
-// A rasterization may involve Painting multiple batches, but the final zero
-// value Span will occur only once per rasterization, not once per Paint call.
+// A Painter knows how to paint a batch of Spans. Rasterization may involve
+// Painting multiple batches, and done will be true for the final batch.
+// The Spans' Y values are monotonically increasing during a rasterization.
 // Paint may use all of ss as scratch space during the call.
 type Painter interface {
-	Paint(ss []Span)
+	Paint(ss []Span, done bool)
 }
 
 // The PainterFunc type adapts an ordinary function to the Painter interface.
-type PainterFunc func(ss []Span)
+type PainterFunc func(ss []Span, done bool)
 
 // Paint just delegates the call to f.
-func (f PainterFunc) Paint(ss []Span) { f(ss) }
+func (f PainterFunc) Paint(ss []Span, done bool) { f(ss, done) }
 
 // An AlphaPainter is a Painter that paints Spans onto an image.Alpha.
 type AlphaPainter struct {
@@ -45,7 +44,7 @@ type AlphaPainter struct {
 }
 
 // Paint satisfies the Painter interface by painting ss onto an image.Alpha.
-func (r *AlphaPainter) Paint(ss []Span) {
+func (r *AlphaPainter) Paint(ss []Span, done bool) {
 	for _, s := range ss {
 		y := r.Dy + s.Y
 		if y < 0 {
@@ -95,7 +94,7 @@ type RGBAPainter struct {
 }
 
 // Paint satisfies the Painter interface by painting ss onto an image.RGBA.
-func (r *RGBAPainter) Paint(ss []Span) {
+func (r *RGBAPainter) Paint(ss []Span, done bool) {
 	for _, s := range ss {
 		y := r.Dy + s.Y
 		if y < 0 {
@@ -165,7 +164,7 @@ type MonochromePainter struct {
 
 // Paint delegates to the wrapped Painter after quantizing each Span's alpha
 // value and merging adjacent fully opaque Spans.
-func (m *MonochromePainter) Paint(ss []Span) {
+func (m *MonochromePainter) Paint(ss []Span, done bool) {
 	// We compact the ss slice, discarding any Spans whose alpha quantizes to zero.
 	j := 0
 	for _, s := range ss {
@@ -177,29 +176,32 @@ func (m *MonochromePainter) Paint(ss []Span) {
 				j++
 				m.y, m.x0, m.x1 = s.Y, s.X0, s.X1
 			}
-
-		} else if s.A == 0 {
-			// The final Span of a rasterization is a zero value. We flush
-			// our accumulated Span and finish with a zero Span.
-			ss[j] = Span{m.y, m.x0, m.x1, 1<<32 - 1}
-			j++
-			if j < len(ss) {
-				ss[j] = Span{}
-				j++
-				m.Painter.Paint(ss[0:j])
-			} else if j == len(ss) {
-				m.Painter.Paint(ss)
-				ss[0] = Span{}
-				m.Painter.Paint(ss[0:1])
-			} else {
-				panic("unreachable")
-			}
-			// Reset the accumulator, so that this Painter can be re-used.
-			m.y, m.x0, m.x1 = 0, 0, 0
-			return
 		}
 	}
-	m.Painter.Paint(ss[0:j])
+	if done {
+		// Flush the accumulated Span.
+		finalSpan := Span{m.y, m.x0, m.x1, 1<<32 - 1}
+		if j < len(ss) {
+			ss[j] = finalSpan
+			j++
+			m.Painter.Paint(ss[0:j], true)
+		} else if j == len(ss) {
+			m.Painter.Paint(ss, false)
+			if cap(ss) > 0 {
+				ss = ss[0:1]
+			} else {
+				ss = make([]Span, 1)
+			}
+			ss[0] = finalSpan
+			m.Painter.Paint(ss, true)
+		} else {
+			panic("unreachable")
+		}
+		// Reset the accumulator, so that this Painter can be re-used.
+		m.y, m.x0, m.x1 = 0, 0, 0
+	} else {
+		m.Painter.Paint(ss[0:j], false)
+	}
 }
 
 // NewMonochromePainter creates a new MonochromePainter that wraps the given
@@ -221,7 +223,7 @@ type GammaCorrectionPainter struct {
 
 // Paint delegates to the wrapped Painter after performing gamma-correction
 // on each Span.
-func (g *GammaCorrectionPainter) Paint(ss []Span) {
+func (g *GammaCorrectionPainter) Paint(ss []Span, done bool) {
 	if !g.gammaIsOne {
 		const (
 			M = 0x1010101 // 255*M == 1<<32-1
@@ -237,14 +239,10 @@ func (g *GammaCorrectionPainter) Paint(ss []Span) {
 			a = (a + N/2) / N
 			// Convert the alpha from 16-bit (which is g.a's range) to 32-bit.
 			a |= a << 16
-			// A non-final Span can't have zero alpha.
-			if a == 0 {
-				a = 1
-			}
 			ss[i].A = a
 		}
 	}
-	g.Painter.Paint(ss)
+	g.Painter.Paint(ss, done)
 }
 
 // SetGamma sets the gamma value.
