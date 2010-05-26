@@ -39,38 +39,34 @@ type AlphaPainter struct {
 	Image *image.Alpha
 	// The Porter-Duff composition operator.
 	Op draw.Op
-	// An offset (in pixels) to the painted spans.
-	Dx, Dy int
 }
 
 // Paint satisfies the Painter interface by painting ss onto an image.Alpha.
 func (r *AlphaPainter) Paint(ss []Span, done bool) {
 	for _, s := range ss {
-		y := r.Dy + s.Y
-		if y < 0 {
+		if s.Y < 0 {
 			continue
 		}
-		if y >= len(r.Image.Pixel) {
+		if s.Y >= len(r.Image.Pixel) {
 			return
 		}
-		p := r.Image.Pixel[y]
-		x0, x1 := r.Dx+s.X0, r.Dx+s.X1
-		if x0 < 0 {
-			x0 = 0
+		p := r.Image.Pixel[s.Y]
+		if s.X0 < 0 {
+			s.X0 = 0
 		}
-		if x1 > len(p) {
-			x1 = len(p)
+		if s.X1 > len(p) {
+			s.X1 = len(p)
 		}
 		if r.Op == draw.Over {
 			a := int(s.A >> 24)
-			for x := x0; x < x1; x++ {
+			for x := s.X0; x < s.X1; x++ {
 				ax := int(p[x].A)
 				ax = (ax*255 + (255-ax)*a) / 255
 				p[x] = image.AlphaColor{uint8(ax)}
 			}
 		} else {
 			color := image.AlphaColor{uint8(s.A >> 24)}
-			for x := x0; x < x1; x++ {
+			for x := s.X0; x < s.X1; x++ {
 				p[x] = color
 			}
 		}
@@ -87,8 +83,6 @@ type RGBAPainter struct {
 	Image *image.RGBA
 	// The Porter-Duff composition operator.
 	Op draw.Op
-	// An offset (in pixels) to the painted spans.
-	Dx, Dy int
 	// The 16-bit color to paint the spans.
 	cr, cg, cb, ca uint32
 }
@@ -96,22 +90,20 @@ type RGBAPainter struct {
 // Paint satisfies the Painter interface by painting ss onto an image.RGBA.
 func (r *RGBAPainter) Paint(ss []Span, done bool) {
 	for _, s := range ss {
-		y := r.Dy + s.Y
-		if y < 0 {
+		if s.Y < 0 {
 			continue
 		}
-		if y >= len(r.Image.Pixel) {
+		if s.Y >= len(r.Image.Pixel) {
 			return
 		}
-		p := r.Image.Pixel[y]
-		x0, x1 := r.Dx+s.X0, r.Dx+s.X1
-		if x0 < 0 {
-			x0 = 0
+		p := r.Image.Pixel[s.Y]
+		if s.X0 < 0 {
+			s.X0 = 0
 		}
-		if x1 > len(p) {
-			x1 = len(p)
+		if s.X1 > len(p) {
+			s.X1 = len(p)
 		}
-		for x := x0; x < x1; x++ {
+		for x := s.X0; x < s.X1; x++ {
 			// This code is duplicated from drawGlyphOver in $GOROOT/src/pkg/exp/draw/draw.go.
 			// TODO(nigeltao): Factor out common code into a utility function, once the compiler
 			// can inline such function calls.

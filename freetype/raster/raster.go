@@ -64,6 +64,8 @@ type Rasterizer struct {
 	// If false, the default behavior is to use the even-odd winding fill
 	// rule during Rasterize.
 	UseNonZeroWinding bool
+	// An offset (in pixels) to the painted spans.
+	Dx, Dy int
 
 	// The width of the Rasterizer. The height is implicit in len(cellIndex).
 	width int
@@ -501,7 +503,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 						xi1 = r.width
 					}
 					if xi0 < xi1 {
-						r.spanBuf[s] = Span{yi, xi0, xi1, alpha}
+						r.spanBuf[s] = Span{yi + r.Dy, xi0 + r.Dx, xi1 + r.Dx, alpha}
 						s++
 					}
 				}
@@ -518,7 +520,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 					xi1 = r.width
 				}
 				if xi0 < xi1 {
-					r.spanBuf[s] = Span{yi, xi0, xi1, alpha}
+					r.spanBuf[s] = Span{yi + r.Dy, xi0 + r.Dx, xi1 + r.Dx, alpha}
 					s++
 				}
 			}

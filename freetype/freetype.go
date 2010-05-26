@@ -145,7 +145,7 @@ func (c *RGBAContext) DrawText(pt raster.Point, s string) (err os.Error) {
 	advance, x0 := 0, pt.X
 	dx := raster.Fixed(-c.xmin << 8)
 	dy := raster.Fixed(-c.ymin << 8)
-	c.rp.Dy, y = c.ymin+int(pt.Y>>8), pt.Y&0xff
+	c.r.Dy, y = c.ymin+int(pt.Y>>8), pt.Y&0xff
 	y += dy
 	prev, hasPrev := truetype.Index(0), false
 	for _, ch := range s {
@@ -170,7 +170,7 @@ func (c *RGBAContext) DrawText(pt raster.Point, s string) (err os.Error) {
 		x = x0 + c.FUnitToFixed(advance)
 		// Break the co-ordinate down into an integer pixel part and a
 		// sub-pixel part, making sure that the latter is non-negative.
-		c.rp.Dx, x = c.xmin+int(x>>8), x&0xff
+		c.r.Dx, x = c.xmin+int(x>>8), x&0xff
 		x += dx
 		// Draw the contours.
 		c.r.Clear()
