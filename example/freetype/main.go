@@ -1,3 +1,8 @@
+// Copyright 2010 The Freetype-Go Authors. All rights reserved.
+// Use of this source code is governed by your choice of either the
+// FreeType License or the GNU General Public License version 2,
+// both of which can be found in the LICENSE file.
+
 package main
 
 import (
@@ -6,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"freetype-go.googlecode.com/hg/freetype"
+	"freetype-go.googlecode.com/hg/freetype/raster"
 	"image"
 	"image/png"
 	"io/ioutil"
@@ -83,12 +89,13 @@ func main() {
 	}
 	rgba := image.NewRGBA(640, 480)
 	draw.Draw(rgba, draw.Rect(0, 0, rgba.Width(), rgba.Height()), bg, draw.ZP)
-	c := freetype.NewRGBAContext(rgba)
-	c.SetColor(fg)
+	c := freetype.NewContext()
 	c.SetDPI(*dpi)
 	c.SetFont(font)
 	c.SetFontSize(*size)
-	c.SetGamma(*gamma)
+	rp := raster.NewRGBAPainter(rgba)
+	rp.SetColor(fg)
+	gcp := raster.NewGammaCorrectionPainter(rp, *gamma)
 
 	// Draw the guidelines.
 	for i := 0; i < 200; i++ {
@@ -99,7 +106,7 @@ func main() {
 	// Draw the text.
 	pt := freetype.Pt(10, 10)
 	for _, s := range text {
-		err = c.DrawText(pt, s)
+		err = c.DrawText(gcp, pt, s)
 		if err != nil {
 			log.Stderr(err)
 			return
