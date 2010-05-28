@@ -136,10 +136,6 @@ func (r *RGBAPainter) Paint(ss []Span, done bool) {
 // SetColor sets the color to paint the spans.
 func (r *RGBAPainter) SetColor(c image.Color) {
 	r.cr, r.cg, r.cb, r.ca = c.RGBA()
-	r.cr >>= 16
-	r.cg >>= 16
-	r.cb >>= 16
-	r.ca >>= 16
 }
 
 // NewRGBAPainter creates a new RGBAPainter for the given image.
