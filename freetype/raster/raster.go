@@ -30,7 +30,7 @@ func (x Fixed) String() string {
 	if f < 0 {
 		f = -f
 	}
-	return fmt.Sprintf("%d:%03d", i, f)
+	return fmt.Sprintf("%d:%03d", int32(i), int32(f))
 }
 
 // maxAbs returns the maximum of abs(a) and abs(b).
