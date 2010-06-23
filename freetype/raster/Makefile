@@ -7,6 +7,7 @@ include $(GOROOT)/src/Make.$(GOARCH)
 
 TARG=freetype-go.googlecode.com/hg/freetype/raster
 GOFILES=\
+	geom.go\
 	paint.go\
 	raster.go\
 

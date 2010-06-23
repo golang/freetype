@@ -16,41 +16,8 @@
 package raster
 
 import (
-	"fmt"
 	"strconv"
 )
-
-// A 24.8 fixed point number.
-type Fixed int32
-
-// Human-readable format for a 24.8 fixed point number. For example, the
-// number one-and-a-quarter becomes "1:064".
-func (x Fixed) String() string {
-	i, f := x/256, x%256
-	if f < 0 {
-		f = -f
-	}
-	return fmt.Sprintf("%d:%03d", int32(i), int32(f))
-}
-
-// maxAbs returns the maximum of abs(a) and abs(b).
-func maxAbs(a, b Fixed) Fixed {
-	if a < 0 {
-		a = -a
-	}
-	if b < 0 {
-		b = -b
-	}
-	if a < b {
-		return b
-	}
-	return a
-}
-
-// Two-dimensional point, in 24.8 fixed point format.
-type Point struct {
-	X, Y Fixed
-}
 
 // A cell is part of a linked list (for a given yi co-ordinate) of accumulated
 // area/coverage for the pixel at (xi, yi).
@@ -453,6 +420,33 @@ func (r *Rasterizer) Add3(b, c, d Point) {
 	}
 }
 
+// AddPath adds the given Path.
+func (r *Rasterizer) AddPath(p Path) {
+	for i := 0; i < len(p); {
+		switch p[i] {
+		case 0:
+			r.Start(Point{p[i+1], p[i+2]})
+			i += 3
+		case 1:
+			r.Add1(Point{p[i+1], p[i+2]})
+			i += 3
+		case 2:
+			r.Add2(Point{p[i+1], p[i+2]}, Point{p[i+3], p[i+4]})
+			i += 5
+		case 3:
+			r.Add3(Point{p[i+1], p[i+2]}, Point{p[i+3], p[i+4]}, Point{p[i+5], p[i+6]})
+			i += 7
+		default:
+			panic("freetype/raster: bad path")
+		}
+	}
+}
+
+// AddStroke adds a stroked Path.
+func (r *Rasterizer) AddStroke(q Path, width Fixed, cap Cap, join Join) {
+	Stroke(r, q, width, cap, join)
+}
+
 // Converts an area value to a uint32 alpha value. A completely filled pixel
 // corresponds to an area of 256*256*2, and an alpha of 1<<32-1. The
 // conversion of area values greater than this depends on the winding rule:
@@ -533,7 +527,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 	p.Paint(r.spanBuf[0:s], true)
 }
 
-// Clear cancels any previous calls to r.Start or r.AddN.
+// Clear cancels any previous calls to r.Start or r.AddXxx.
 func (r *Rasterizer) Clear() {
 	r.a = Point{0, 0}
 	r.xi = 0
