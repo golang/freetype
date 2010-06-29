@@ -426,16 +426,16 @@ func (r *Rasterizer) AddPath(p Path) {
 		switch p[i] {
 		case 0:
 			r.Start(Point{p[i+1], p[i+2]})
-			i += 3
+			i += 4
 		case 1:
 			r.Add1(Point{p[i+1], p[i+2]})
-			i += 3
+			i += 4
 		case 2:
 			r.Add2(Point{p[i+1], p[i+2]}, Point{p[i+3], p[i+4]})
-			i += 5
+			i += 6
 		case 3:
 			r.Add3(Point{p[i+1], p[i+2]}, Point{p[i+3], p[i+4]}, Point{p[i+5], p[i+6]})
-			i += 7
+			i += 8
 		default:
 			panic("freetype/raster: bad path")
 		}
