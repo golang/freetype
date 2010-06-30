@@ -10,15 +10,15 @@ import (
 	"math"
 )
 
-// A Fixed is a 24.8 fixed point number.
-type Fixed int32
+// A Fix32 is a 24.8 fixed point number.
+type Fix32 int32
 
-// A Fixed64 is a 48.16 fixed point number.
-type Fixed64 int64
+// A Fix64 is a 48.16 fixed point number.
+type Fix64 int64
 
 // String returns a human-readable representation of a 24.8 fixed point number.
 // For example, the number one-and-a-quarter becomes "1:064".
-func (x Fixed) String() string {
+func (x Fix32) String() string {
 	i, f := x/256, x%256
 	if f < 0 {
 		f = -f
@@ -28,7 +28,7 @@ func (x Fixed) String() string {
 
 // String returns a human-readable representation of a 48.16 fixed point number.
 // For example, the number one-and-a-quarter becomes "1:00064".
-func (x Fixed64) String() string {
+func (x Fix64) String() string {
 	i, f := x/65536, x%65536
 	if f < 0 {
 		f = -f
@@ -37,7 +37,7 @@ func (x Fixed64) String() string {
 }
 
 // maxAbs returns the maximum of abs(a) and abs(b).
-func maxAbs(a, b Fixed) Fixed {
+func maxAbs(a, b Fix32) Fix32 {
 	if a < 0 {
 		a = -a
 	}
@@ -53,7 +53,7 @@ func maxAbs(a, b Fixed) Fixed {
 // A Point represents a two-dimensional point or vector, in 24.8 fixed point
 // format.
 type Point struct {
-	X, Y Fixed
+	X, Y Fix32
 }
 
 // Add returns the vector p + q.
@@ -67,7 +67,7 @@ func (p Point) Sub(q Point) Point {
 }
 
 // Mul returns the vector k * p.
-func (p Point) Mul(k Fixed) Point {
+func (p Point) Mul(k Fix32) Point {
 	return Point{p.X * k / 256, p.Y * k / 256}
 }
 
@@ -77,23 +77,23 @@ func (p Point) Neg() Point {
 }
 
 // Dot returns the dot product p·q.
-func (p Point) Dot(q Point) Fixed64 {
+func (p Point) Dot(q Point) Fix64 {
 	px, py := int64(p.X), int64(p.Y)
 	qx, qy := int64(q.X), int64(q.Y)
-	return Fixed64(px*qx + py*qy)
+	return Fix64(px*qx + py*qy)
 }
 
 // Len returns the length of the vector p.
-func (p Point) Len() Fixed {
+func (p Point) Len() Fix32 {
 	// TODO(nigeltao): use fixed point math.
 	x := float64(p.X)
 	y := float64(p.Y)
-	return Fixed(math.Sqrt(x*x + y*y))
+	return Fix32(math.Sqrt(x*x + y*y))
 }
 
 // Norm returns the vector p normalized to the given length, or the zero Point
 // if p is degenerate.
-func (p Point) Norm(length Fixed) Point {
+func (p Point) Norm(length Fix32) Point {
 	d := p.Len()
 	if d == 0 {
 		return Point{0, 0}
@@ -101,7 +101,7 @@ func (p Point) Norm(length Fixed) Point {
 	s, t := int64(length), int64(d)
 	x := int64(p.X) * s / t
 	y := int64(p.Y) * s / t
-	return Point{Fixed(x), Fixed(y)}
+	return Point{Fix32(x), Fix32(y)}
 }
 
 // Rot45CW returns the vector p rotated clockwise by 45 degrees.
@@ -111,7 +111,7 @@ func (p Point) Rot45CW() Point {
 	px, py := int64(p.X), int64(p.Y)
 	qx := (+px - py) * 181 / 256
 	qy := (+px + py) * 181 / 256
-	return Point{Fixed(qx), Fixed(qy)}
+	return Point{Fix32(qx), Fix32(qy)}
 }
 
 // Rot90CW returns the vector p rotated clockwise by 90 degrees.
@@ -127,7 +127,7 @@ func (p Point) Rot135CW() Point {
 	px, py := int64(p.X), int64(p.Y)
 	qx := (-px - py) * 181 / 256
 	qy := (+px - py) * 181 / 256
-	return Point{Fixed(qx), Fixed(qy)}
+	return Point{Fix32(qx), Fix32(qy)}
 }
 
 // Rot45CCW returns the vector p rotated counter-clockwise by 45 degrees.
@@ -137,7 +137,7 @@ func (p Point) Rot45CCW() Point {
 	px, py := int64(p.X), int64(p.Y)
 	qx := (+px + py) * 181 / 256
 	qy := (-px + py) * 181 / 256
-	return Point{Fixed(qx), Fixed(qy)}
+	return Point{Fix32(qx), Fix32(qy)}
 }
 
 // Rot90CCW returns the vector p rotated counter-clockwise by 90 degrees.
@@ -153,7 +153,7 @@ func (p Point) Rot135CCW() Point {
 	px, py := int64(p.X), int64(p.Y)
 	qx := (-px + py) * 181 / 256
 	qy := (-px - py) * 181 / 256
-	return Point{Fixed(qx), Fixed(qy)}
+	return Point{Fix32(qx), Fix32(qy)}
 }
 
 // An Adder accumulates points on a curve.
@@ -170,7 +170,7 @@ type Adder interface {
 
 // A Path is a sequence of curves, and a curve is a start point followed by a
 // sequence of linear, quadratic or cubic segments.
-type Path []Fixed
+type Path []Fix32
 
 // String returns a human-readable representation of a Path.
 func (p Path) String() string {
@@ -181,16 +181,16 @@ func (p Path) String() string {
 		}
 		switch p[i] {
 		case 0:
-			s += "S0" + fmt.Sprint([]Fixed(p[i+1:i+3]))
+			s += "S0" + fmt.Sprint([]Fix32(p[i+1:i+3]))
 			i += 4
 		case 1:
-			s += "A1" + fmt.Sprint([]Fixed(p[i+1:i+3]))
+			s += "A1" + fmt.Sprint([]Fix32(p[i+1:i+3]))
 			i += 4
 		case 2:
-			s += "A2" + fmt.Sprint([]Fixed(p[i+1:i+5]))
+			s += "A2" + fmt.Sprint([]Fix32(p[i+1:i+5]))
 			i += 6
 		case 3:
-			s += "A3" + fmt.Sprint([]Fixed(p[i+1:i+7]))
+			s += "A3" + fmt.Sprint([]Fix32(p[i+1:i+7]))
 			i += 8
 		default:
 			panic("freetype/raster: bad path")
@@ -204,7 +204,7 @@ func (p *Path) grow(n int) {
 	n += len(*p)
 	if n > cap(*p) {
 		old := *p
-		*p = make([]Fixed, n, 2*n+8)
+		*p = make([]Fix32, n, 2*n+8)
 		copy(*p, old)
 		return
 	}
@@ -291,13 +291,13 @@ const (
 )
 
 // AddStroke adds a stroked Path.
-func (p *Path) AddStroke(q Path, width Fixed, cap Cap, join Join) {
+func (p *Path) AddStroke(q Path, width Fix32, cap Cap, join Join) {
 	Stroke(p, q, width, cap, join)
 }
 
 // Stroke adds the stroked Path q to p. The resultant stroked path is typically
 // self-intersecting and should be rasterized with UseNonZeroWinding.
-func Stroke(p Adder, q Path, width Fixed, cap Cap, join Join) {
+func Stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
 	if len(q) == 0 {
 		return
 	}
@@ -446,17 +446,17 @@ func addArc(p Adder, pivot, n0, n1 Point) {
 	// d is the normalized dot product between s and n1. Since the angle ranges
 	// between 0 and 45 degrees then d ranges between 256/256 and 181/256.
 	d := 256 * s.Dot(n1) / r2
-	multiple := Fixed(150 - 22*(d-181)/(256-181))
+	multiple := Fix32(150 - 22*(d-181)/(256-181))
 	p.Add2(pivot.Add(s.Add(n1).Mul(multiple)), pivot.Add(n1))
 }
 
 // stroke adds the stroked Path q to p, where q consists of exactly one curve.
-func stroke(p Adder, q Path, width Fixed, cap Cap, join Join) {
+func stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
 	// Stroking is implemented by deriving two paths each width/2 apart from q.
 	// The left-hand-side path is added immediately to p; the right-hand-side
 	// path is accumulated in r, and once we've finished adding the LHS to p
 	// we add the RHS in reverse order.
-	r := Path(make([]Fixed, 0, len(q)))
+	r := Path(make([]Fix32, 0, len(q)))
 	var start, anorm Point
 	a := Point{q[1], q[2]}
 	i := 4

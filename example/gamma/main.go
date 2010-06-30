@@ -18,7 +18,7 @@ import (
 )
 
 func p(x, y int) raster.Point {
-	return raster.Point{raster.Fixed(x * 256), raster.Fixed(y * 256)}
+	return raster.Point{raster.Fix32(x * 256), raster.Fix32(y * 256)}
 }
 
 func clear(m *image.Alpha) {

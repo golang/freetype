@@ -27,8 +27,8 @@ func main() {
 		n = 17
 		r = 256 * 80
 	)
-	s := raster.Fixed(r * math.Sqrt(2) / 2)
-	t := raster.Fixed(r * math.Tan(math.Pi/8))
+	s := raster.Fix32(r * math.Sqrt(2) / 2)
+	t := raster.Fix32(r * math.Tan(math.Pi/8))
 
 	m := image.NewRGBA(800, 600)
 	for y := 0; y < m.Height(); y++ {
@@ -41,12 +41,12 @@ func main() {
 	z := raster.NewRasterizer(800, 600)
 
 	for i := 0; i < n; i++ {
-		cx := raster.Fixed(25600 + 51200*(i%4))
-		cy := raster.Fixed(2560 + 32000*(i/4))
+		cx := raster.Fix32(25600 + 51200*(i%4))
+		cy := raster.Fix32(2560 + 32000*(i/4))
 		c := raster.Point{cx, cy}
 		theta := math.Pi * (0.5 + 0.5*float64(i)/(n-1))
-		dx := raster.Fixed(r * math.Cos(theta))
-		dy := raster.Fixed(r * math.Sin(theta))
+		dx := raster.Fix32(r * math.Cos(theta))
+		dy := raster.Fix32(r * math.Sin(theta))
 		d := raster.Point{dx, dy}
 		// Draw a quarter-circle approximated by two quadratic segments,
 		// with each segment spanning 45 degrees.
@@ -58,7 +58,7 @@ func main() {
 		// For an explanation of the magic constants 22, 150, 181 and 256, read the
 		// comments in the freetype/raster package.
 		dot := 256 * d.Dot(raster.Point{0, r}) / (r * r)
-		multiple := raster.Fixed(150 - 22*(dot-181)/(256-181))
+		multiple := raster.Fix32(150 - 22*(dot-181)/(256-181))
 		z.Add2(c.Add(raster.Point{dx, r + dy}.Mul(multiple)), c.Add(d))
 		// Close the curve.
 		z.Add1(c)
@@ -66,12 +66,12 @@ func main() {
 	z.Rasterize(mp)
 
 	for i := 0; i < n; i++ {
-		cx := raster.Fixed(25600 + 51200*(i%4))
-		cy := raster.Fixed(2560 + 32000*(i/4))
+		cx := raster.Fix32(25600 + 51200*(i%4))
+		cy := raster.Fix32(2560 + 32000*(i/4))
 		for j := 0; j < n; j++ {
 			theta := math.Pi * float64(j) / (n - 1)
-			dx := raster.Fixed(r * math.Cos(theta))
-			dy := raster.Fixed(r * math.Sin(theta))
+			dx := raster.Fix32(r * math.Cos(theta))
+			dy := raster.Fix32(r * math.Sin(theta))
 			m.Set(int((cx+dx)/256), int((cy+dy)/256), image.Yellow)
 		}
 	}

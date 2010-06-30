@@ -111,7 +111,7 @@ func main() {
 			log.Stderr(err)
 			return
 		}
-		pt.Y += c.PointToFixed(*size * *spacing)
+		pt.Y += c.PointToFix32(*size * *spacing)
 	}
 
 	// Save that RGBA image to disk.

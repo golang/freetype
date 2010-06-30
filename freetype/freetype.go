@@ -22,9 +22,9 @@ func ParseFont(b []byte) (*truetype.Font, os.Error) {
 }
 
 // Pt converts from a co-ordinate pair measured in pixels to a raster.Point
-// co-ordinate pair measured in raster.Fixed units.
+// co-ordinate pair measured in raster.Fix32 units.
 func Pt(x, y int) raster.Point {
-	return raster.Point{raster.Fixed(x << 8), raster.Fixed(y << 8)}
+	return raster.Point{raster.Fix32(x << 8), raster.Fix32(y << 8)}
 }
 
 // A Context holds the state for drawing text in a given font and size.
@@ -53,10 +53,10 @@ type Context struct {
 	scale int
 }
 
-// FUnitToFixed converts the given number of FUnits into fixed point units,
+// FUnitToFix32 converts the given number of FUnits into fixed point units,
 // rounding to nearest.
-func (c *Context) FUnitToFixed(x int) raster.Fixed {
-	return raster.Fixed((x*c.scale + 128) >> 8)
+func (c *Context) FUnitToFix32(x int) raster.Fix32 {
+	return raster.Fix32((x*c.scale + 128) >> 8)
 }
 
 // FUnitToPixelRD converts the given number of FUnits into pixel units,
@@ -71,14 +71,14 @@ func (c *Context) FUnitToPixelRU(x int) int {
 	return (x*c.scale + 0xffff) >> 16
 }
 
-// PointToFixed converts the given number of points (as in ``a 12 point font'')
+// PointToFix32 converts the given number of points (as in ``a 12 point font'')
 // into fixed point units.
-func (c *Context) PointToFixed(x float) raster.Fixed {
-	return raster.Fixed(x * float(c.dpi) * (256.0 / 72.0))
+func (c *Context) PointToFix32(x float) raster.Fix32 {
+	return raster.Fix32(x * float(c.dpi) * (256.0 / 72.0))
 }
 
 // drawContour draws the given closed contour with the given offset.
-func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fixed) {
+func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	if len(ps) == 0 {
 		return
 	}
@@ -86,15 +86,15 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fixed) {
 	// start is the same thing measured in fixed point units and positive Y
 	// going downwards, and offset by (dx, dy)
 	start := raster.Point{
-		dx + c.FUnitToFixed(int(ps[0].X)),
-		dy + c.FUnitToFixed(c.upe-int(ps[0].Y)),
+		dx + c.FUnitToFix32(int(ps[0].X)),
+		dy + c.FUnitToFix32(c.upe-int(ps[0].Y)),
 	}
 	c.r.Start(start)
 	q0, on0 := start, true
 	for _, p := range ps[1:] {
 		q := raster.Point{
-			dx + c.FUnitToFixed(int(p.X)),
-			dy + c.FUnitToFixed(c.upe-int(p.Y)),
+			dx + c.FUnitToFix32(int(p.X)),
+			dy + c.FUnitToFix32(c.upe-int(p.Y)),
 		}
 		on := p.Flags&0x01 != 0
 		if on {
@@ -134,13 +134,13 @@ func (c *Context) DrawText(p raster.Painter, pt raster.Point, s string) (err os.
 	if c.font == nil {
 		return os.NewError("freetype: DrawText called with a nil font")
 	}
-	// pt.X, pt.Y, x, y, dx, dy and x0 are measured in raster.Fixed units,
+	// pt.X, pt.Y, x, y, dx, dy and x0 are measured in raster.Fix32 units,
 	// c.r.Dx, c.r.Dy, c.xmin and c.ymin are measured in pixels, and
 	// advance is measured in FUnits.
-	var x, y raster.Fixed
+	var x, y raster.Fix32
 	advance, x0 := 0, pt.X
-	dx := raster.Fixed(-c.xmin << 8)
-	dy := raster.Fixed(-c.ymin << 8)
+	dx := raster.Fix32(-c.xmin << 8)
+	dy := raster.Fix32(-c.ymin << 8)
 	c.r.Dy, y = c.ymin+int(pt.Y>>8), pt.Y&0xff
 	y += dy
 	prev, hasPrev := truetype.Index(0), false
@@ -162,8 +162,8 @@ func (c *Context) DrawText(p raster.Painter, pt raster.Point, s string) (err os.
 				return
 			}
 		}
-		// Convert the advance from FUnits to raster.Fixed units.
-		x = x0 + c.FUnitToFixed(advance)
+		// Convert the advance from FUnits to raster.Fix32 units.
+		x = x0 + c.FUnitToFix32(advance)
 		// Break the co-ordinate down into an integer pixel part and a
 		// sub-pixel part, making sure that the latter is non-negative.
 		c.r.Dx, x = c.xmin+int(x>>8), x&0xff

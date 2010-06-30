@@ -116,12 +116,12 @@ func (r *Rasterizer) setCell(xi, yi int) {
 // scan accumulates area/coverage for the yi'th scanline, going from
 // x0 to x1 in the horizontal direction (in 24.8 fixed point co-ordinates)
 // and from y0f to y1f fractional vertical units within that scanline.
-func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fixed) {
+func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fix32) {
 	// Break the 24.8 fixed point X co-ordinates into integral and fractional parts.
 	x0i := int(x0) / 256
-	x0f := x0 - Fixed(256*x0i)
+	x0f := x0 - Fix32(256*x0i)
 	x1i := int(x1) / 256
-	x1f := x1 - Fixed(256*x1i)
+	x1f := x1 - Fix32(256*x1i)
 
 	// A perfectly horizontal scan.
 	if y0f == y1f {
@@ -139,7 +139,7 @@ func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fixed) {
 	// all intermediate cells go through the full width of the cell,
 	// or 256 units in 24.8 fixed point format.
 	var (
-		p, q, edge0, edge1 Fixed
+		p, q, edge0, edge1 Fix32
 		xiDelta            int
 	)
 	if dx > 0 {
@@ -201,9 +201,9 @@ func (r *Rasterizer) Add1(b Point) {
 	dx, dy := x1-x0, y1-y0
 	// Break the 24.8 fixed point Y co-ordinates into integral and fractional parts.
 	y0i := int(y0) / 256
-	y0f := y0 - Fixed(256*y0i)
+	y0f := y0 - Fix32(256*y0i)
 	y1i := int(y1) / 256
-	y1f := y1 - Fixed(256*y1i)
+	y1f := y1 - Fix32(256*y1i)
 
 	if y0i == y1i {
 		// There is only one scanline.
@@ -213,7 +213,7 @@ func (r *Rasterizer) Add1(b Point) {
 		// This is a vertical line segment. We avoid calling r.scan and instead
 		// manipulate r.area and r.cover directly.
 		var (
-			edge0, edge1 Fixed
+			edge0, edge1 Fix32
 			yiDelta      int
 		)
 		if dy > 0 {
@@ -250,7 +250,7 @@ func (r *Rasterizer) Add1(b Point) {
 		// all intermediate scanlines go through the full height of the row, or 256
 		// units in 24.8 fixed point format.
 		var (
-			p, q, edge0, edge1 Fixed
+			p, q, edge0, edge1 Fix32
 			yiDelta            int
 		)
 		if dy > 0 {
@@ -302,7 +302,7 @@ func (r *Rasterizer) Add1(b Point) {
 func (r *Rasterizer) Add2(b, c Point) {
 	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
 	// Specifically, how much the middle point b deviates from (a+c)/2.
-	dev := maxAbs(r.a.X-2*b.X+c.X, r.a.Y-2*b.Y+c.Y) / Fixed(r.splitScale2)
+	dev := maxAbs(r.a.X-2*b.X+c.X, r.a.Y-2*b.Y+c.Y) / Fix32(r.splitScale2)
 	nsplit := 0
 	for dev > 0 {
 		dev /= 4
@@ -357,8 +357,8 @@ func (r *Rasterizer) Add2(b, c Point) {
 // Add3 adds a cubic segment to the current curve.
 func (r *Rasterizer) Add3(b, c, d Point) {
 	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
-	dev2 := maxAbs(r.a.X-3*(b.X+c.X)+d.X, r.a.Y-3*(b.Y+c.Y)+d.Y) / Fixed(r.splitScale2)
-	dev3 := maxAbs(r.a.X-2*b.X+d.X, r.a.Y-2*b.Y+d.Y) / Fixed(r.splitScale3)
+	dev2 := maxAbs(r.a.X-3*(b.X+c.X)+d.X, r.a.Y-3*(b.Y+c.Y)+d.Y) / Fix32(r.splitScale2)
+	dev3 := maxAbs(r.a.X-2*b.X+d.X, r.a.Y-2*b.Y+d.Y) / Fix32(r.splitScale3)
 	nsplit := 0
 	for dev2 > 0 || dev3 > 0 {
 		dev2 /= 8
@@ -443,7 +443,7 @@ func (r *Rasterizer) AddPath(p Path) {
 }
 
 // AddStroke adds a stroked Path.
-func (r *Rasterizer) AddStroke(q Path, width Fixed, cap Cap, join Join) {
+func (r *Rasterizer) AddStroke(q Path, width Fix32, cap Cap, join Join) {
 	Stroke(r, q, width, cap, join)
 }
 
@@ -541,7 +541,7 @@ func (r *Rasterizer) Clear() {
 }
 
 // SetBounds sets the maximum width and height of the rasterized image and
-// calls Clear. The width and height are in pixels, not Fixed units.
+// calls Clear. The width and height are in pixels, not Fix32 units.
 func (r *Rasterizer) SetBounds(width, height int) {
 	if width < 0 {
 		width = 0
