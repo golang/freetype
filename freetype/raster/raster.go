@@ -443,8 +443,8 @@ func (r *Rasterizer) AddPath(p Path) {
 }
 
 // AddStroke adds a stroked Path.
-func (r *Rasterizer) AddStroke(q Path, width Fix32, cap Cap, join Join) {
-	Stroke(r, q, width, cap, join)
+func (r *Rasterizer) AddStroke(q Path, width Fix32, cr Capper, jr Joiner) {
+	Stroke(r, q, width, cr, jr)
 }
 
 // Converts an area value to a uint32 alpha value. A completely filled pixel

@@ -269,37 +269,52 @@ func (p *Path) AddPath(q Path) {
 	copy((*p)[n:n+m], q)
 }
 
-// TODO(nigeltao): should a Cap be a func rather than an int, so that callers
-// can specify custom cap styles? Similarly for Join.
+// A Capper signifies how to begin or end a stroked path.
+type Capper interface {
+	// Cap adds a cap to p given a pivot point and the normal vector of a
+	// terminal segment. The normal's length is half of the stroke width.
+	Cap(p Adder, halfWidth Fix32, pivot, n1 Point)
+}
 
-// A Cap signifies how to begin or end a stroked curve.
-type Cap int
+// The CapperFunc type adapts an ordinary function to be a Capper.
+type CapperFunc func(Adder, Fix32, Point, Point)
 
-const (
-	RoundCap Cap = iota
-	ButtCap
-	SquareCap
-)
+func (f CapperFunc) Cap(p Adder, halfWidth Fix32, pivot, n1 Point) {
+	f(p, halfWidth, pivot, n1)
+}
 
-// A Join signifies how to join interior nodes of a stroked curve.
-type Join int
+// A Joiner signifies how to join interior nodes of a stroked path.
+type Joiner interface {
+	// Join adds a join to the two sides of a stroked path given a pivot
+	// point and the normal vectors of the trailing and leading segments.
+	// Both normals have length equal to half of the stroke width.
+	Join(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point)
+}
 
-const (
-	RoundJoin Join = iota
-	BevelJoin
-	MiterJoin
-)
+// The JoinerFunc type adapts an ordinary function to be a Joiner.
+type JoinerFunc func(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point)
+
+func (f JoinerFunc) Join(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point) {
+	f(lhs, rhs, halfWidth, pivot, n0, n1)
+}
 
 // AddStroke adds a stroked Path.
-func (p *Path) AddStroke(q Path, width Fix32, cap Cap, join Join) {
-	Stroke(p, q, width, cap, join)
+func (p *Path) AddStroke(q Path, width Fix32, cr Capper, jr Joiner) {
+	Stroke(p, q, width, cr, jr)
 }
 
 // Stroke adds the stroked Path q to p. The resultant stroked path is typically
 // self-intersecting and should be rasterized with UseNonZeroWinding.
-func Stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
+// cr and jr may be nil, which defaults to a RoundCapper or RoundJoiner.
+func Stroke(p Adder, q Path, width Fix32, cr Capper, jr Joiner) {
 	if len(q) == 0 {
 		return
+	}
+	if cr == nil {
+		cr = RoundCapper
+	}
+	if jr == nil {
+		jr = RoundJoiner
 	}
 	if q[0] != 0 {
 		panic("freetype/raster: bad path")
@@ -308,7 +323,7 @@ func Stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
 	for j := 4; j < len(q); {
 		switch q[j] {
 		case 0:
-			stroke(p, q[i:j], width, cap, join)
+			stroke(p, q[i:j], width, cr, jr)
 			i, j = j, j+4
 		case 1:
 			j += 4
@@ -318,52 +333,53 @@ func Stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
 			j += 8
 		}
 	}
-	stroke(p, q[i:len(q)], width, cap, join)
+	stroke(p, q[i:len(q)], width, cr, jr)
 }
 
-func addCap(p Adder, cap Cap, center, end Point) {
-	switch cap {
-	case RoundCap:
-		// The cubic Bézier approximation to a circle involves the magic number
-		// (√2 - 1) * 4/3, which is approximately 141/256.
-		const k = 141
-		d := end.Sub(center)
-		e := d.Rot90CCW()
-		side := center.Add(e)
-		start := center.Sub(d)
-		d, e = d.Mul(k), e.Mul(k)
-		p.Add3(start.Add(e), side.Sub(d), side)
-		p.Add3(side.Add(d), end.Add(e), end)
-	case ButtCap:
-		p.Add1(end)
-	case SquareCap:
-		d := end.Sub(center)
-		e := d.Rot90CCW()
-		side := center.Add(e)
-		p.Add1(side.Sub(d))
-		p.Add1(side.Add(d))
-		p.Add1(end)
-	}
-}
+// A RoundCapper adds round caps to a stroked path.
+var RoundCapper Capper = CapperFunc(func(p Adder, halfWidth Fix32, pivot, n1 Point) {
+	// The cubic Bézier approximation to a circle involves the magic number
+	// (√2 - 1) * 4/3, which is approximately 141/256.
+	const k = 141
+	e := n1.Rot90CCW()
+	side := pivot.Add(e)
+	start, end := pivot.Sub(n1), pivot.Add(n1)
+	d, e := n1.Mul(k), e.Mul(k)
+	p.Add3(start.Add(e), side.Sub(d), side)
+	p.Add3(side.Add(d), end.Add(e), end)
+})
 
-func addJoin(lhs, rhs Adder, join Join, a, anorm, bnorm Point) {
-	switch join {
-	case RoundJoin:
-		dot := anorm.Rot90CW().Dot(bnorm)
-		if dot >= 0 {
-			addArc(lhs, a, anorm, bnorm)
-			rhs.Add1(a.Sub(bnorm))
-		} else {
-			lhs.Add1(a.Add(bnorm))
-			addArc(rhs, a, anorm.Neg(), bnorm.Neg())
-		}
-	case BevelJoin:
-		lhs.Add1(a.Add(bnorm))
-		rhs.Add1(a.Sub(bnorm))
-	case MiterJoin:
-		panic("freetype/raster: miter join unimplemented")
+// A ButtCapper adds butt caps to a stroked path.
+var ButtCapper Capper = CapperFunc(func(p Adder, halfWidth Fix32, pivot, n1 Point) {
+	p.Add1(pivot.Add(n1))
+})
+
+// A SquareCapper adds square caps to a stroked path.
+var SquareCapper Capper = CapperFunc(func(p Adder, halfWidth Fix32, pivot, n1 Point) {
+	e := n1.Rot90CCW()
+	side := pivot.Add(e)
+	p.Add1(side.Sub(n1))
+	p.Add1(side.Add(n1))
+	p.Add1(pivot.Add(n1))
+})
+
+// A RoundJoiner adds round joins to a stroked path.
+var RoundJoiner Joiner = JoinerFunc(func(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
+	dot := n0.Rot90CW().Dot(n1)
+	if dot >= 0 {
+		addArc(lhs, pivot, n0, n1)
+		rhs.Add1(pivot.Sub(n1))
+	} else {
+		lhs.Add1(pivot.Add(n1))
+		addArc(rhs, pivot, n0.Neg(), n1.Neg())
 	}
-}
+})
+
+// A BevelJoiner adds bevel joins to a stroked path.
+var BevelJoiner Joiner = JoinerFunc(func(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
+	lhs.Add1(pivot.Add(n1))
+	rhs.Add1(pivot.Sub(n1))
+})
 
 // addArc adds a circular arc from pivot+n0 to pivot+n1 to p. The shorter of
 // the two possible arcs is taken, i.e. the one spanning <= 180 degrees.
@@ -451,12 +467,13 @@ func addArc(p Adder, pivot, n0, n1 Point) {
 }
 
 // stroke adds the stroked Path q to p, where q consists of exactly one curve.
-func stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
+func stroke(p Adder, q Path, width Fix32, cr Capper, jr Joiner) {
 	// Stroking is implemented by deriving two paths each width/2 apart from q.
 	// The left-hand-side path is added immediately to p; the right-hand-side
 	// path is accumulated in r, and once we've finished adding the LHS to p
 	// we add the RHS in reverse order.
 	r := Path(make([]Fix32, 0, len(q)))
+	u := width / 2
 	var start, anorm Point
 	a := Point{q[1], q[2]}
 	i := 4
@@ -464,13 +481,13 @@ func stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
 		switch q[i] {
 		case 1:
 			b := Point{q[i+1], q[i+2]}
-			bnorm := b.Sub(a).Norm(width / 2).Rot90CCW()
+			bnorm := b.Sub(a).Norm(u).Rot90CCW()
 			if i == 4 {
 				start = a.Add(bnorm)
 				p.Start(start)
 				r.Start(a.Sub(bnorm))
 			} else {
-				addJoin(p, &r, join, a, anorm, bnorm)
+				jr.Join(p, &r, u, a, anorm, bnorm)
 			}
 			p.Add1(b.Add(bnorm))
 			r.Add1(b.Sub(bnorm))
@@ -485,7 +502,7 @@ func stroke(p Adder, q Path, width Fix32, cap Cap, join Join) {
 		}
 	}
 	i = len(r) - 1
-	addCap(p, cap, Point{q[len(q)-3], q[len(q)-2]}, Point{r[i-2], r[i-1]})
+	cr.Cap(p, u, Point{q[len(q)-3], q[len(q)-2]}, anorm.Neg())
 	// Add r reversed to p.
 	// For example, if r consists of a linear segment from A to B followed by a
 	// quadratic segment from B to C to D, then the values of r looks like:
@@ -512,5 +529,6 @@ loop:
 	}
 	// TODO(nigeltao): if q is a closed path then we should join the first and
 	// last segments instead of capping them.
-	addCap(p, cap, Point{q[1], q[2]}, start)
+	pivot := Point{q[1], q[2]}
+	cr.Cap(p, u, pivot, start.Sub(pivot))
 }
