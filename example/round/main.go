@@ -72,7 +72,7 @@ func main() {
 			theta := math.Pi * float64(j) / (n - 1)
 			dx := raster.Fix32(r * math.Cos(theta))
 			dy := raster.Fix32(r * math.Sin(theta))
-			m.Set(int((cx+dx)/256), int((cy+dy)/256), image.Yellow)
+			m.Set(int((cx+dx)/256), int((cy+dy)/256), image.RGBAColor{255, 255, 0, 255})
 		}
 	}
 

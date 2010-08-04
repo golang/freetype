@@ -119,11 +119,11 @@ func showNodes(m *image.RGBA, ns []node) {
 		var c image.Color
 		switch n.degree {
 		case 0:
-			c = image.Aqua
+			c = image.RGBAColor{0, 255, 255, 255}
 		case 1:
-			c = image.Red
+			c = image.RGBAColor{255, 0, 0, 255}
 		case 2:
-			c = image.Red
+			c = image.RGBAColor{255, 0, 0, 255}
 		}
 		if c != nil {
 			m.Set(x, y, c)
