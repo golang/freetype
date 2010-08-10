@@ -31,9 +31,10 @@ func main() {
 	t := raster.Fix32(r * math.Tan(math.Pi/8))
 
 	m := image.NewRGBA(800, 600)
-	for y := 0; y < m.Height(); y++ {
-		for x := 0; x < m.Width(); x++ {
-			m.Pixel[y][x] = image.RGBAColor{63, 63, 63, 255}
+	for y := 0; y < 600; y++ {
+		p := m.Pix[y*m.Stride : y*m.Stride+800]
+		for i := range p {
+			p[i] = image.RGBAColor{63, 63, 63, 255}
 		}
 	}
 	mp := raster.NewRGBAPainter(m)

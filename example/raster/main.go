@@ -113,7 +113,7 @@ func showNodes(m *image.RGBA, ns []node) {
 	for _, n := range ns {
 		p := p(n)
 		x, y := int(p.X)/256, int(p.Y)/256
-		if x < 0 || x >= m.Width() || y < 0 || y >= m.Height() {
+		if !m.Bounds().Contains(image.Point{x, y}) {
 			continue
 		}
 		var c image.Color

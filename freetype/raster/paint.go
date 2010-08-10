@@ -43,31 +43,33 @@ type AlphaPainter struct {
 
 // Paint satisfies the Painter interface by painting ss onto an image.Alpha.
 func (r *AlphaPainter) Paint(ss []Span, done bool) {
+	b := r.Image.Bounds()
 	for _, s := range ss {
-		if s.Y < 0 {
+		if s.Y < b.Min.Y {
 			continue
 		}
-		if s.Y >= len(r.Image.Pixel) {
+		if s.Y >= b.Max.Y {
 			return
 		}
-		p := r.Image.Pixel[s.Y]
-		if s.X0 < 0 {
-			s.X0 = 0
+		if s.X0 < b.Min.X {
+			s.X0 = b.Min.X
 		}
-		if s.X1 > len(p) {
-			s.X1 = len(p)
+		if s.X1 > b.Max.X {
+			s.X1 = b.Max.X
 		}
+		base := s.Y * r.Image.Stride
+		p := r.Image.Pix[base+s.X0 : base+s.X1]
 		if r.Op == draw.Over {
 			a := int(s.A >> 24)
-			for x := s.X0; x < s.X1; x++ {
-				ax := int(p[x].A)
+			for i, c := range p {
+				ax := int(c.A)
 				ax = (ax*255 + (255-ax)*a) / 255
-				p[x] = image.AlphaColor{uint8(ax)}
+				p[i] = image.AlphaColor{uint8(ax)}
 			}
 		} else {
 			color := image.AlphaColor{uint8(s.A >> 24)}
-			for x := s.X0; x < s.X1; x++ {
-				p[x] = color
+			for i := range p {
+				p[i] = color
 			}
 		}
 	}
@@ -89,28 +91,29 @@ type RGBAPainter struct {
 
 // Paint satisfies the Painter interface by painting ss onto an image.RGBA.
 func (r *RGBAPainter) Paint(ss []Span, done bool) {
+	b := r.Image.Bounds()
 	for _, s := range ss {
-		if s.Y < 0 {
+		if s.Y < b.Min.Y {
 			continue
 		}
-		if s.Y >= len(r.Image.Pixel) {
+		if s.Y >= b.Max.Y {
 			return
 		}
-		p := r.Image.Pixel[s.Y]
-		if s.X0 < 0 {
-			s.X0 = 0
+		if s.X0 < b.Min.X {
+			s.X0 = b.Min.X
 		}
-		if s.X1 > len(p) {
-			s.X1 = len(p)
+		if s.X1 > b.Max.X {
+			s.X1 = b.Max.X
 		}
-		for x := s.X0; x < s.X1; x++ {
+		base := s.Y * r.Image.Stride
+		p := r.Image.Pix[base+s.X0 : base+s.X1]
+		for i, rgba := range p {
 			// This code is duplicated from drawGlyphOver in $GOROOT/src/pkg/exp/draw/draw.go.
 			// TODO(nigeltao): Factor out common code into a utility function, once the compiler
 			// can inline such function calls.
 			ma := s.A >> 16
 			const M = 1<<16 - 1
 			if r.Op == draw.Over {
-				rgba := p[x]
 				dr := uint32(rgba.R)
 				dg := uint32(rgba.G)
 				db := uint32(rgba.B)
@@ -121,13 +124,13 @@ func (r *RGBAPainter) Paint(ss []Span, done bool) {
 				dg = (dg*a + r.cg*ma) / M
 				db = (db*a + r.cb*ma) / M
 				da = (da*a + r.ca*ma) / M
-				p[x] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
+				p[i] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
 			} else {
 				dr := r.cr * ma / M
 				dg := r.cg * ma / M
 				db := r.cb * ma / M
 				da := r.ca * ma / M
-				p[x] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
+				p[i] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
 			}
 		}
 	}

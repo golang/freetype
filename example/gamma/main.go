@@ -22,9 +22,12 @@ func p(x, y int) raster.Point {
 }
 
 func clear(m *image.Alpha) {
-	for y := 0; y < m.Height(); y++ {
-		for x := 0; x < m.Width(); x++ {
-			m.Pixel[y][x] = image.AlphaColor{0}
+	b := m.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		base := y * m.Stride
+		p := m.Pix[base+b.Min.X : base+b.Max.X]
+		for i, _ := range p {
+			p[i] = image.AlphaColor{0}
 		}
 	}
 }
