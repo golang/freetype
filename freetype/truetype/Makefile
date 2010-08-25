@@ -3,7 +3,7 @@
 # FreeType License or the GNU General Public License version 2 (or
 # any later version), both of which can be found in the LICENSE file.
 
-include $(GOROOT)/src/Make.$(GOARCH)
+include $(GOROOT)/src/Make.inc
 
 TARG=freetype-go.googlecode.com/hg/freetype/truetype
 GOFILES=\
