@@ -87,14 +87,14 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	// going downwards, and offset by (dx, dy)
 	start := raster.Point{
 		dx + c.FUnitToFix32(int(ps[0].X)),
-		dy + c.FUnitToFix32(c.upe-int(ps[0].Y)),
+		dy + c.FUnitToFix32(-int(ps[0].Y)),
 	}
 	c.r.Start(start)
 	q0, on0 := start, true
 	for _, p := range ps[1:] {
 		q := raster.Point{
 			dx + c.FUnitToFix32(int(p.X)),
-			dy + c.FUnitToFix32(c.upe-int(p.Y)),
+			dy + c.FUnitToFix32(-int(p.Y)),
 		}
 		on := p.Flags&0x01 != 0
 		if on {
@@ -124,11 +124,11 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	}
 }
 
-// DrawText draws s at pt using p. The text is placed so that the top left of
-// the em square of the first character of s is equal to pt. The majority of
-// the affected pixels will be below and to the right of pt, but some may be
-// above or to the left. For example, drawing a string that starts with a 'J'
-// in an italic font may affect pixels to the left of pt.
+// DrawText draws s at pt using p. The text is placed so that the left edge of
+// the em square of the first character of s and the baseline intersect at pt.
+// The majority of the affected pixels will be above and to the right of pt,
+// but some may be below or to the left. For example, drawing a string that
+// starts with a 'J' in an italic font may affect pixels below and left of pt.
 // pt is a raster.Point and can therefore represent sub-pixel positions.
 func (c *Context) DrawText(p raster.Painter, pt raster.Point, s string) (err os.Error) {
 	if c.font == nil {
@@ -192,9 +192,9 @@ func (c *Context) recalc() {
 	} else {
 		b := c.font.Bounds()
 		c.xmin = c.FUnitToPixelRD(int(b.XMin))
-		c.ymin = c.FUnitToPixelRD(c.upe - int(b.YMax))
+		c.ymin = c.FUnitToPixelRD(-int(b.YMax))
 		xmax := c.FUnitToPixelRU(int(b.XMax))
-		ymax := c.FUnitToPixelRU(c.upe - int(b.YMin))
+		ymax := c.FUnitToPixelRU(-int(b.YMin))
 		c.r.SetBounds(xmax-c.xmin, ymax-c.ymin)
 	}
 }
