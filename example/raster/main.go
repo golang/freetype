@@ -148,8 +148,8 @@ func main() {
 	// Draw the mask image (in gray) onto an RGBA image.
 	rgba := image.NewRGBA(w, h)
 	gray := image.ColorImage{image.AlphaColor{0x1f}}
-	draw.Draw(rgba, draw.Rect(0, 0, w, h), image.Black, draw.ZP)
-	draw.DrawMask(rgba, draw.Rect(0, 0, w, h), gray, draw.ZP, mask, draw.ZP, draw.Over)
+	draw.Draw(rgba, rgba.Bounds(), image.Black, image.ZP)
+	draw.DrawMask(rgba, rgba.Bounds(), gray, image.ZP, mask, image.ZP, draw.Over)
 	showNodes(rgba, outside)
 	showNodes(rgba, inside)
 

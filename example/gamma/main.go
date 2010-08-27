@@ -51,8 +51,8 @@ func main() {
 		h = 200
 	)
 	rgba := image.NewRGBA(w, h)
-	draw.Draw(rgba, draw.Rect(0, 0, w, h/2), image.Black, draw.ZP)
-	draw.Draw(rgba, draw.Rect(0, h/2, w, h), image.White, draw.ZP)
+	draw.Draw(rgba, image.Rect(0, 0, w, h/2), image.Black, image.ZP)
+	draw.Draw(rgba, image.Rect(0, h/2, w, h), image.White, image.ZP)
 	mask := image.NewAlpha(50, 50)
 	painter := raster.NewAlphaPainter(mask)
 	painter.Op = draw.Src
@@ -61,9 +61,9 @@ func main() {
 		clear(mask)
 		r.Rasterize(raster.NewGammaCorrectionPainter(painter, g))
 		x, y := 50*i+25, 25
-		draw.DrawMask(rgba, draw.Rect(x, y, x+50, y+50), image.White, draw.ZP, mask, draw.ZP, draw.Over)
+		draw.DrawMask(rgba, image.Rect(x, y, x+50, y+50), image.White, image.ZP, mask, image.ZP, draw.Over)
 		y += 100
-		draw.DrawMask(rgba, draw.Rect(x, y, x+50, y+50), image.Black, draw.ZP, mask, draw.ZP, draw.Over)
+		draw.DrawMask(rgba, image.Rect(x, y, x+50, y+50), image.Black, image.ZP, mask, image.ZP, draw.Over)
 	}
 
 	// Save that RGBA image to disk.
