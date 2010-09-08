@@ -27,7 +27,7 @@ func (x Fix32) String() string {
 }
 
 // String returns a human-readable representation of a 48.16 fixed point number.
-// For example, the number one-and-a-quarter becomes "1:00064".
+// For example, the number one-and-a-quarter becomes "1:16384".
 func (x Fix64) String() string {
 	i, f := x/65536, x%65536
 	if f < 0 {
