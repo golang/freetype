@@ -9,10 +9,32 @@
 package freetype
 
 import (
+	"exp/draw"
 	"freetype-go.googlecode.com/hg/freetype/raster"
 	"freetype-go.googlecode.com/hg/freetype/truetype"
+	"image"
 	"os"
 )
+
+// These constants determine the size of the glyph cache. The cache is keyed
+// primarily by the glyph index modulo nGlyphs, and secondarily by sub-pixel
+// position for the mask image. Sub-pixel positions are quantized to
+// nXFractions possible values in both the x and y directions.
+const (
+	nGlyphs     = 256
+	nXFractions = 4
+	nYFractions = 1
+)
+
+// An entry in the glyph cache is keyed explicitly by the glyph index and
+// implicitly by the quantized x and y fractional offset. It maps to a mask
+// image and an offset.
+type cacheEntry struct {
+	valid  bool
+	glyph  truetype.Index
+	mask   *image.Alpha
+	offset image.Point
+}
 
 // ParseFont just calls the Parse function from the freetype/truetype package.
 // It is provided here so that code that imports this package doesn't need
@@ -32,15 +54,12 @@ type Context struct {
 	r        *raster.Rasterizer
 	font     *truetype.Font
 	glyphBuf *truetype.GlyphBuf
-	fontSize float
-	dpi      int
-	upe      int
-	// A TrueType's glyph's nodes can have negative co-ordinates, but the
-	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin
-	// are the pixel offsets, based on the font's FUnit metrics, that let
-	// a negative co-ordinate in TrueType space be non-negative in
-	// rasterizer space. xmin and ymin are typically <= 0.
-	xmin, ymin int
+	// pt is the location where drawing starts.
+	pt raster.Point
+	// dst and src are the destination and source images for drawing.
+	dst draw.Image
+	src image.Image
+	// fontSize, dpi and upe are used to calculate scale.
 	// scale is a multiplication factor to convert 256 FUnits (which is truetype's
 	// native unit) to 24.8 fixed point units (which is the rasterizer's native unit).
 	// At the default values of 72 DPI and 2048 units-per-em, one em of a 12 point
@@ -50,7 +69,12 @@ type Context struct {
 	// which equals 384 fixed point units per 256 FUnits.
 	// To check this, 1 em * 2048 FUnits per em * 384 fixed point units per 256 FUnits
 	// equals 3072 fixed point units.
-	scale int
+	fontSize float
+	dpi      int
+	upe      int
+	scale    int
+	// cache is the glyph cache.
+	cache [nGlyphs * nXFractions * nYFractions]cacheEntry
 }
 
 // FUnitToFix32 converts the given number of FUnits into fixed point units,
@@ -124,89 +148,126 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	}
 }
 
-// DrawText draws s at pt using p. The text is placed so that the left edge of
-// the em square of the first character of s and the baseline intersect at pt.
-// The majority of the affected pixels will be above and to the right of pt,
-// but some may be below or to the left. For example, drawing a string that
-// starts with a 'J' in an italic font may affect pixels below and left of pt.
-// pt is a raster.Point and can therefore represent sub-pixel positions.
-func (c *Context) DrawText(p raster.Painter, pt raster.Point, s string) (err os.Error) {
+// rasterize returns the glyph mask and integer-pixel offset to render the
+// given glyph at the given sub-pixel offsets.
+// The 24.8 fixed point arguments fx and fy must be in the range [0, 1).
+func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.Alpha, image.Point, os.Error) {
+	if err := c.glyphBuf.Load(c.font, glyph); err != nil {
+		return nil, image.ZP, err
+	}
+	// Calculate the integer-pixel bounds for the glyph.
+	xmin := int(fx+c.FUnitToFix32(+int(c.glyphBuf.B.XMin))) >> 8
+	ymin := int(fy+c.FUnitToFix32(-int(c.glyphBuf.B.YMax))) >> 8
+	xmax := int(fx+c.FUnitToFix32(+int(c.glyphBuf.B.XMax))+0xff) >> 8
+	ymax := int(fy+c.FUnitToFix32(-int(c.glyphBuf.B.YMin))+0xff) >> 8
+	if xmin > xmax || ymin > ymax {
+		return nil, image.ZP, os.NewError("freetype: negative sized glyph")
+	}
+	// A TrueType's glyph's nodes can have negative co-ordinates, but the
+	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin
+	// are the pixel offsets, based on the font's FUnit metrics, that let
+	// a negative co-ordinate in TrueType space be non-negative in
+	// rasterizer space. xmin and ymin are typically <= 0.
+	fx += raster.Fix32(-xmin << 8)
+	fy += raster.Fix32(-ymin << 8)
+	// Rasterize the glyph's vectors.
+	c.r.Clear()
+	e0 := 0
+	for _, e1 := range c.glyphBuf.End {
+		c.drawContour(c.glyphBuf.Point[e0:e1], fx, fy)
+		e0 = e1
+	}
+	a := image.NewAlpha(xmax-xmin, ymax-ymin)
+	c.r.Rasterize(&raster.AlphaPainter{a, draw.Src})
+	return a, image.Point{xmin, ymin}, nil
+}
+
+// glyph returns the glyph mask and integer-pixel offset to render the given
+// glyph at the given sub-pixel point. It is a cache for the rasterize method.
+// Unlike rasterize, p's co-ordinates do not have to be in the range [0, 1).
+func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, image.Point, os.Error) {
+	// Split p.X and p.Y into their integer and fractional parts.
+	ix, fx := int(p.X>>8), p.X&0xff
+	iy, fy := int(p.Y>>8), p.Y&0xff
+	// Calculate the index t into the cache array.
+	tg := int(glyph) % nGlyphs
+	tx := int(fx) / (256 / nXFractions)
+	ty := int(fy) / (256 / nYFractions)
+	t := ((tg*nXFractions)+tx)*nYFractions + ty
+	// Check for a cache hit.
+	if c.cache[t].valid && c.cache[t].glyph == glyph {
+		return c.cache[t].mask, c.cache[t].offset.Add(image.Point{ix, iy}), nil
+	}
+	// Rasterize the glyph and put the result into the cache.
+	mask, offset, err := c.rasterize(glyph, fx, fy)
+	if err != nil {
+		return nil, image.ZP, err
+	}
+	c.cache[t] = cacheEntry{true, glyph, mask, offset}
+	return mask, offset.Add(image.Point{ix, iy}), nil
+}
+
+// DrawText draws s at the current point and then advances the point. The text
+// is placed so that the left edge of the em square of the first character of s
+// and the baseline intersect at the point. The majority of the affected pixels
+// will be above and to the right of the point, but some may be below or to the
+// left. For example, drawing a string that starts with a 'J' in an italic font
+// may affect pixels below and left of the point.
+func (c *Context) DrawText(s string) os.Error {
 	if c.font == nil {
 		return os.NewError("freetype: DrawText called with a nil font")
 	}
-	// pt.X, pt.Y, x, y, dx, dy and x0 are measured in raster.Fix32 units,
-	// c.r.Dx, c.r.Dy, c.xmin and c.ymin are measured in pixels, and
-	// advance is measured in FUnits.
-	var x, y raster.Fix32
-	advance, x0 := 0, pt.X
-	dx := raster.Fix32(-c.xmin << 8)
-	dy := raster.Fix32(-c.ymin << 8)
-	c.r.Dy, y = c.ymin+int(pt.Y>>8), pt.Y&0xff
-	y += dy
 	prev, hasPrev := truetype.Index(0), false
-	for _, ch := range s {
-		index := c.font.Index(ch)
-		// Load the next glyph (if it was different from the previous one)
-		// and add any kerning adjustment.
+	for _, rune := range s {
+		index := c.font.Index(rune)
 		if hasPrev {
-			advance += int(c.font.Kerning(prev, index))
-			if prev != index {
-				err = c.glyphBuf.Load(c.font, index)
-				if err != nil {
-					return
-				}
-			}
-		} else {
-			err = c.glyphBuf.Load(c.font, index)
-			if err != nil {
-				return
-			}
+			c.pt.X += c.FUnitToFix32(int(c.font.Kerning(prev, index)))
 		}
-		// Convert the advance from FUnits to raster.Fix32 units.
-		x = x0 + c.FUnitToFix32(advance)
-		// Break the co-ordinate down into an integer pixel part and a
-		// sub-pixel part, making sure that the latter is non-negative.
-		c.r.Dx, x = c.xmin+int(x>>8), x&0xff
-		x += dx
-		// Draw the contours.
-		c.r.Clear()
-		e0 := 0
-		for _, e := range c.glyphBuf.End {
-			c.drawContour(c.glyphBuf.Point[e0:e], x, y)
-			e0 = e
+		mask, offset, err := c.glyph(index, c.pt)
+		if err != nil {
+			return err
 		}
-		c.r.Rasterize(p)
-		// Advance the cursor.
-		advance += int(c.font.HMetric(index).AdvanceWidth)
+		c.pt.X += c.FUnitToFix32(int(c.font.HMetric(index).AdvanceWidth))
+		draw.DrawMask(c.dst, mask.Bounds().Add(offset), c.src, image.ZP, mask, image.ZP, draw.Over)
 		prev, hasPrev = index, true
 	}
-	return
+	return nil
 }
 
 // recalc recalculates scale and bounds values from the font size, screen
-// resolution and font metrics.
+// resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
 	c.scale = int((c.fontSize * float(c.dpi) * 256 * 256) / (float(c.upe) * 72))
 	if c.font == nil {
-		c.xmin, c.ymin = 0, 0
+		c.r.SetBounds(0, 0)
 	} else {
+		// Set the rasterizer's bounds to be big enough to handle the largest glyph.
 		b := c.font.Bounds()
-		c.xmin = c.FUnitToPixelRD(int(b.XMin))
-		c.ymin = c.FUnitToPixelRD(-int(b.YMax))
-		xmax := c.FUnitToPixelRU(int(b.XMax))
+		xmin := c.FUnitToPixelRD(+int(b.XMin))
+		ymin := c.FUnitToPixelRD(-int(b.YMax))
+		xmax := c.FUnitToPixelRU(+int(b.XMax))
 		ymax := c.FUnitToPixelRU(-int(b.YMin))
-		c.r.SetBounds(xmax-c.xmin, ymax-c.ymin)
+		c.r.SetBounds(xmax-xmin, ymax-ymin)
+	}
+	for i := range c.cache {
+		c.cache[i] = cacheEntry{}
 	}
 }
 
 // SetDPI sets the screen resolution in dots per inch.
 func (c *Context) SetDPI(dpi int) {
+	if c.dpi == dpi {
+		return
+	}
 	c.dpi = dpi
 	c.recalc()
 }
 
 // SetFont sets the font used to draw text.
 func (c *Context) SetFont(font *truetype.Font) {
+	if c.font == font {
+		return
+	}
 	c.font = font
 	c.upe = font.UnitsPerEm()
 	if c.upe <= 0 {
@@ -217,9 +278,31 @@ func (c *Context) SetFont(font *truetype.Font) {
 
 // SetFontSize sets the font size in points (as in ``a 12 point font'').
 func (c *Context) SetFontSize(fontSize float) {
+	if c.fontSize == fontSize {
+		return
+	}
 	c.fontSize = fontSize
 	c.recalc()
 }
+
+// SetDst sets the destination image for draw operations.
+func (c *Context) SetDst(dst draw.Image) {
+	c.dst = dst
+}
+
+// SetSrc sets the source image for draw operations. This is typically an
+// image.ColorImage.
+func (c *Context) SetSrc(src image.Image) {
+	c.src = src
+}
+
+// SetPoint sets the point where DrawText will next draw text.
+// pt is a raster.Point and can therefore represent sub-pixel positions.
+func (c *Context) SetPoint(pt raster.Point) {
+	c.pt = pt
+}
+
+// TODO(nigeltao): implement Context.SetGamma.
 
 // NewContext creates a new Context.
 func NewContext() *Context {

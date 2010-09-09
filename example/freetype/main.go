@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"freetype-go.googlecode.com/hg/freetype"
-	"freetype-go.googlecode.com/hg/freetype/raster"
 	"image"
 	"image/png"
 	"io/ioutil"
@@ -22,7 +21,6 @@ import (
 var (
 	dpi      = flag.Int("dpi", 72, "screen resolution in Dots Per Inch")
 	fontfile = flag.String("fontfile", "../../luxi-fonts/luxisr.ttf", "filename of the ttf font")
-	gamma    = flag.Float("gamma", 1.0, "gamma correction")
 	size     = flag.Float("size", 12, "font size in points")
 	spacing  = flag.Float("spacing", 1.5, "line spacing (e.g. 2 means double spaced)")
 	wonb     = flag.Bool("whiteonblack", false, "white text on a black background")
@@ -93,9 +91,8 @@ func main() {
 	c.SetDPI(*dpi)
 	c.SetFont(font)
 	c.SetFontSize(*size)
-	rp := raster.NewRGBAPainter(rgba)
-	rp.SetColor(fg)
-	gcp := raster.NewGammaCorrectionPainter(rp, *gamma)
+	c.SetDst(rgba)
+	c.SetSrc(fg)
 
 	// Draw the guidelines.
 	for i := 0; i < 200; i++ {
@@ -106,7 +103,8 @@ func main() {
 	// Draw the text.
 	pt := freetype.Pt(10, 10+c.FUnitToPixelRU(font.UnitsPerEm()))
 	for _, s := range text {
-		err = c.DrawText(gcp, pt, s)
+		c.SetPoint(pt)
+		err = c.DrawText(s)
 		if err != nil {
 			log.Stderr(err)
 			return
