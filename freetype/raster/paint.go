@@ -33,16 +33,14 @@ type PainterFunc func(ss []Span, done bool)
 // Paint just delegates the call to f.
 func (f PainterFunc) Paint(ss []Span, done bool) { f(ss, done) }
 
-// An AlphaPainter is a Painter that paints Spans onto an image.Alpha.
-type AlphaPainter struct {
-	// The image to compose onto.
+// An AlphaOverPainter is a Painter that paints Spans onto an image.Alpha
+// using the Over Porter-Duff composition operator.
+type AlphaOverPainter struct {
 	Image *image.Alpha
-	// The Porter-Duff composition operator.
-	Op draw.Op
 }
 
 // Paint satisfies the Painter interface by painting ss onto an image.Alpha.
-func (r *AlphaPainter) Paint(ss []Span, done bool) {
+func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 	b := r.Image.Bounds()
 	for _, s := range ss {
 		if s.Y < b.Min.Y {
@@ -59,25 +57,44 @@ func (r *AlphaPainter) Paint(ss []Span, done bool) {
 		}
 		base := s.Y * r.Image.Stride
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
-		if r.Op == draw.Over {
-			a := int(s.A >> 24)
-			for i, c := range p {
-				ax := int(c.A)
-				ax = (ax*255 + (255-ax)*a) / 255
-				p[i] = image.AlphaColor{uint8(ax)}
-			}
-		} else {
-			color := image.AlphaColor{uint8(s.A >> 24)}
-			for i := range p {
-				p[i] = color
-			}
+		a := int(s.A >> 24)
+		for i, c := range p {
+			v := int(c.A)
+			v = (v*255 + (255-v)*a) / 255
+			p[i] = image.AlphaColor{uint8(v)}
 		}
 	}
 }
 
-// NewAlphaPainter creates a new AlphaPainter for the given image.
-func NewAlphaPainter(m *image.Alpha) *AlphaPainter {
-	return &AlphaPainter{Image: m}
+// An AlphaSrcPainter is a Painter that paints Spans onto an image.Alpha
+// using the Src Porter-Duff composition operator.
+type AlphaSrcPainter struct {
+	Image *image.Alpha
+}
+
+// Paint satisfies the Painter interface by painting ss onto an image.Alpha.
+func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
+	b := r.Image.Bounds()
+	for _, s := range ss {
+		if s.Y < b.Min.Y {
+			continue
+		}
+		if s.Y >= b.Max.Y {
+			return
+		}
+		if s.X0 < b.Min.X {
+			s.X0 = b.Min.X
+		}
+		if s.X1 > b.Max.X {
+			s.X1 = b.Max.X
+		}
+		base := s.Y * r.Image.Stride
+		p := r.Image.Pix[base+s.X0 : base+s.X1]
+		color := image.AlphaColor{uint8(s.A >> 24)}
+		for i := range p {
+			p[i] = color
+		}
+	}
 }
 
 type RGBAPainter struct {
