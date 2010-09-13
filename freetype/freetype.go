@@ -56,6 +56,8 @@ type Context struct {
 	glyphBuf *truetype.GlyphBuf
 	// pt is the location where drawing starts.
 	pt raster.Point
+	// clip is the clip rectangle for drawing.
+	clip image.Rectangle
 	// dst and src are the destination and source images for drawing.
 	dst draw.Image
 	src image.Image
@@ -228,7 +230,12 @@ func (c *Context) DrawText(s string) os.Error {
 			return err
 		}
 		c.pt.X += c.FUnitToFix32(int(c.font.HMetric(index).AdvanceWidth))
-		draw.DrawMask(c.dst, mask.Bounds().Add(offset), c.src, image.ZP, mask, image.ZP, draw.Over)
+		glyphRect := mask.Bounds().Add(offset)
+		dr := c.clip.Intersect(glyphRect)
+		if !dr.Empty() {
+			mp := image.Point{0, dr.Min.Y - glyphRect.Min.Y}
+			draw.DrawMask(c.dst, dr, c.src, image.ZP, mask, mp, draw.Over)
+		}
 		prev, hasPrev = index, true
 	}
 	return nil
@@ -300,6 +307,11 @@ func (c *Context) SetSrc(src image.Image) {
 // pt is a raster.Point and can therefore represent sub-pixel positions.
 func (c *Context) SetPoint(pt raster.Point) {
 	c.pt = pt
+}
+
+// SetClip sets the clip rectangle for drawing.
+func (c *Context) SetClip(clip image.Rectangle) {
+	c.clip = clip
 }
 
 // TODO(nigeltao): implement Context.SetGamma.

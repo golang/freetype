@@ -91,6 +91,7 @@ func main() {
 	c.SetDPI(*dpi)
 	c.SetFont(font)
 	c.SetFontSize(*size)
+	c.SetClip(rgba.Bounds())
 	c.SetDst(rgba)
 	c.SetSrc(fg)
 
