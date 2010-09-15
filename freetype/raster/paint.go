@@ -55,6 +55,9 @@ func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 		if s.X1 > b.Max.X {
 			s.X1 = b.Max.X
 		}
+		if s.X0 >= s.X1 {
+			continue
+		}
 		base := s.Y * r.Image.Stride
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
 		a := int(s.A >> 24)
@@ -87,6 +90,9 @@ func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
 		}
 		if s.X1 > b.Max.X {
 			s.X1 = b.Max.X
+		}
+		if s.X0 >= s.X1 {
+			continue
 		}
 		base := s.Y * r.Image.Stride
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
