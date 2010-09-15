@@ -104,8 +104,7 @@ func main() {
 	// Draw the text.
 	pt := freetype.Pt(10, 10+c.FUnitToPixelRU(font.UnitsPerEm()))
 	for _, s := range text {
-		c.SetPoint(pt)
-		err = c.DrawText(s)
+		_, err = c.DrawString(s, pt)
 		if err != nil {
 			log.Stderr(err)
 			return

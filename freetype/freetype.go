@@ -54,8 +54,6 @@ type Context struct {
 	r        *raster.Rasterizer
 	font     *truetype.Font
 	glyphBuf *truetype.GlyphBuf
-	// pt is the location where drawing starts.
-	pt raster.Point
 	// clip is the clip rectangle for drawing.
 	clip image.Rectangle
 	// dst and src are the destination and source images for drawing.
@@ -209,27 +207,28 @@ func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, ima
 	return mask, offset.Add(image.Point{ix, iy}), nil
 }
 
-// DrawText draws s at the current point and then advances the point. The text
+// DrawString draws s at p and returns p advanced by the text extent. The text
 // is placed so that the left edge of the em square of the first character of s
-// and the baseline intersect at the point. The majority of the affected pixels
-// will be above and to the right of the point, but some may be below or to the
-// left. For example, drawing a string that starts with a 'J' in an italic font
-// may affect pixels below and left of the point.
-func (c *Context) DrawText(s string) os.Error {
+// and the baseline intersect at p. The majority of the affected pixels will be
+// above and to the right of the point, but some may be below or to the left.
+// For example, drawing a string that starts with a 'J' in an italic font may
+// affect pixels below and left of the point.
+// p is a raster.Point and can therefore represent sub-pixel positions.
+func (c *Context) DrawString(s string, p raster.Point) (raster.Point, os.Error) {
 	if c.font == nil {
-		return os.NewError("freetype: DrawText called with a nil font")
+		return raster.Point{}, os.NewError("freetype: DrawText called with a nil font")
 	}
 	prev, hasPrev := truetype.Index(0), false
 	for _, rune := range s {
 		index := c.font.Index(rune)
 		if hasPrev {
-			c.pt.X += c.FUnitToFix32(int(c.font.Kerning(prev, index)))
+			p.X += c.FUnitToFix32(int(c.font.Kerning(prev, index)))
 		}
-		mask, offset, err := c.glyph(index, c.pt)
+		mask, offset, err := c.glyph(index, p)
 		if err != nil {
-			return err
+			return raster.Point{}, err
 		}
-		c.pt.X += c.FUnitToFix32(int(c.font.HMetric(index).AdvanceWidth))
+		p.X += c.FUnitToFix32(int(c.font.HMetric(index).AdvanceWidth))
 		glyphRect := mask.Bounds().Add(offset)
 		dr := c.clip.Intersect(glyphRect)
 		if !dr.Empty() {
@@ -238,7 +237,7 @@ func (c *Context) DrawText(s string) os.Error {
 		}
 		prev, hasPrev = index, true
 	}
-	return nil
+	return p, nil
 }
 
 // recalc recalculates scale and bounds values from the font size, screen
@@ -301,12 +300,6 @@ func (c *Context) SetDst(dst draw.Image) {
 // image.ColorImage.
 func (c *Context) SetSrc(src image.Image) {
 	c.src = src
-}
-
-// SetPoint sets the point where DrawText will next draw text.
-// pt is a raster.Point and can therefore represent sub-pixel positions.
-func (c *Context) SetPoint(pt raster.Point) {
-	c.pt = pt
 }
 
 // SetClip sets the clip rectangle for drawing.
