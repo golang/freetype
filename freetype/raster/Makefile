@@ -10,6 +10,6 @@ GOFILES=\
 	geom.go\
 	paint.go\
 	raster.go\
+	stroke.go\
 
 include $(GOROOT)/src/Make.pkg
-

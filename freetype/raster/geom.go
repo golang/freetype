@@ -19,21 +19,21 @@ type Fix64 int64
 // String returns a human-readable representation of a 24.8 fixed point number.
 // For example, the number one-and-a-quarter becomes "1:064".
 func (x Fix32) String() string {
-	i, f := x/256, x%256
-	if f < 0 {
-		f = -f
+	if x < 0 {
+		x = -x
+		return fmt.Sprintf("-%d:%03d", int32(x/256), int32(x%256))
 	}
-	return fmt.Sprintf("%d:%03d", int32(i), int32(f))
+	return fmt.Sprintf("%d:%03d", int32(x/256), int32(x%256))
 }
 
 // String returns a human-readable representation of a 48.16 fixed point number.
 // For example, the number one-and-a-quarter becomes "1:16384".
 func (x Fix64) String() string {
-	i, f := x/65536, x%65536
-	if f < 0 {
-		f = -f
+	if x < 0 {
+		x = -x
+		return fmt.Sprintf("-%d:%05d", int64(x/65536), int64(x%65536))
 	}
-	return fmt.Sprintf("%d:%05d", int64(i), int64(f))
+	return fmt.Sprintf("%d:%05d", int64(x/65536), int64(x%65536))
 }
 
 // maxAbs returns the maximum of abs(a) and abs(b).
@@ -54,6 +54,11 @@ func maxAbs(a, b Fix32) Fix32 {
 // format.
 type Point struct {
 	X, Y Fix32
+}
+
+// String returns a human-readable representation of a Point.
+func (p Point) String() string {
+	return "(" + p.X.String() + ", " + p.Y.String() + ")"
 }
 
 // Add returns the vector p + q.
@@ -269,266 +274,47 @@ func (p *Path) AddPath(q Path) {
 	copy((*p)[n:n+m], q)
 }
 
-// A Capper signifies how to begin or end a stroked path.
-type Capper interface {
-	// Cap adds a cap to p given a pivot point and the normal vector of a
-	// terminal segment. The normal's length is half of the stroke width.
-	Cap(p Adder, halfWidth Fix32, pivot, n1 Point)
-}
-
-// The CapperFunc type adapts an ordinary function to be a Capper.
-type CapperFunc func(Adder, Fix32, Point, Point)
-
-func (f CapperFunc) Cap(p Adder, halfWidth Fix32, pivot, n1 Point) {
-	f(p, halfWidth, pivot, n1)
-}
-
-// A Joiner signifies how to join interior nodes of a stroked path.
-type Joiner interface {
-	// Join adds a join to the two sides of a stroked path given a pivot
-	// point and the normal vectors of the trailing and leading segments.
-	// Both normals have length equal to half of the stroke width.
-	Join(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point)
-}
-
-// The JoinerFunc type adapts an ordinary function to be a Joiner.
-type JoinerFunc func(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point)
-
-func (f JoinerFunc) Join(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point) {
-	f(lhs, rhs, halfWidth, pivot, n0, n1)
-}
-
 // AddStroke adds a stroked Path.
 func (p *Path) AddStroke(q Path, width Fix32, cr Capper, jr Joiner) {
 	Stroke(p, q, width, cr, jr)
 }
 
-// Stroke adds the stroked Path q to p. The resultant stroked path is typically
-// self-intersecting and should be rasterized with UseNonZeroWinding.
-// cr and jr may be nil, which defaults to a RoundCapper or RoundJoiner.
-func Stroke(p Adder, q Path, width Fix32, cr Capper, jr Joiner) {
+// firstPoint returns the first point in a non-empty Path.
+func (p Path) firstPoint() Point {
+	return Point{p[1], p[2]}
+}
+
+// lastPoint returns the last point in a non-empty Path.
+func (p Path) lastPoint() Point {
+	return Point{p[len(p)-3], p[len(p)-2]}
+}
+
+// addPathReversed adds q reversed to p.
+// For example, if q consists of a linear segment from A to B followed by a
+// quadratic segment from B to C to D, then the values of q looks like:
+// index: 01234567890123
+// value: 0AA01BB12CCDD2
+// So, when adding q backwards to p, we want to Add2(C, B) followed by Add1(A).
+func addPathReversed(p Adder, q Path) {
 	if len(q) == 0 {
 		return
 	}
-	if cr == nil {
-		cr = RoundCapper
-	}
-	if jr == nil {
-		jr = RoundJoiner
-	}
-	if q[0] != 0 {
-		panic("freetype/raster: bad path")
-	}
-	i := 0
-	for j := 4; j < len(q); {
-		switch q[j] {
-		case 0:
-			stroke(p, q[i:j], width, cr, jr)
-			i, j = j, j+4
-		case 1:
-			j += 4
-		case 2:
-			j += 6
-		case 3:
-			j += 8
-		}
-	}
-	stroke(p, q[i:len(q)], width, cr, jr)
-}
-
-// A RoundCapper adds round caps to a stroked path.
-var RoundCapper Capper = CapperFunc(func(p Adder, halfWidth Fix32, pivot, n1 Point) {
-	// The cubic Bézier approximation to a circle involves the magic number
-	// (√2 - 1) * 4/3, which is approximately 141/256.
-	const k = 141
-	e := n1.Rot90CCW()
-	side := pivot.Add(e)
-	start, end := pivot.Sub(n1), pivot.Add(n1)
-	d, e := n1.Mul(k), e.Mul(k)
-	p.Add3(start.Add(e), side.Sub(d), side)
-	p.Add3(side.Add(d), end.Add(e), end)
-})
-
-// A ButtCapper adds butt caps to a stroked path.
-var ButtCapper Capper = CapperFunc(func(p Adder, halfWidth Fix32, pivot, n1 Point) {
-	p.Add1(pivot.Add(n1))
-})
-
-// A SquareCapper adds square caps to a stroked path.
-var SquareCapper Capper = CapperFunc(func(p Adder, halfWidth Fix32, pivot, n1 Point) {
-	e := n1.Rot90CCW()
-	side := pivot.Add(e)
-	p.Add1(side.Sub(n1))
-	p.Add1(side.Add(n1))
-	p.Add1(pivot.Add(n1))
-})
-
-// A RoundJoiner adds round joins to a stroked path.
-var RoundJoiner Joiner = JoinerFunc(func(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
-	dot := n0.Rot90CW().Dot(n1)
-	if dot >= 0 {
-		addArc(lhs, pivot, n0, n1)
-		rhs.Add1(pivot.Sub(n1))
-	} else {
-		lhs.Add1(pivot.Add(n1))
-		addArc(rhs, pivot, n0.Neg(), n1.Neg())
-	}
-})
-
-// A BevelJoiner adds bevel joins to a stroked path.
-var BevelJoiner Joiner = JoinerFunc(func(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
-	lhs.Add1(pivot.Add(n1))
-	rhs.Add1(pivot.Sub(n1))
-})
-
-// addArc adds a circular arc from pivot+n0 to pivot+n1 to p. The shorter of
-// the two possible arcs is taken, i.e. the one spanning <= 180 degrees.
-// The two vectors n0 and n1 must be of equal length.
-func addArc(p Adder, pivot, n0, n1 Point) {
-	// r2 is the square of the length of n0.
-	r2 := n0.Dot(n0)
-	if r2 < 4096 {
-		// The arc radius is so small that we collapse to a straight line.
-		p.Add1(pivot.Add(n1))
-		return
-	}
-	// We approximate the arc by 0, 1, 2 or 3 45-degree quadratic segments plus
-	// a final quadratic segment from s to n1. Each 45-degree segment has control
-	// points {1, 0}, {1, tan(π/8)} and {1/√2, 1/√2} suitably scaled, rotated and
-	// translated. tan(π/8) is approximately 106/256.
-	const t = 106
-	var s Point
-	// We determine which octant the angle between n0 and n1 is in via three dot products.
-	// m0, m1 and m2 are n0 rotated clockwise by 45, 90 and 135 degrees.
-	m0 := n0.Rot45CW()
-	m1 := n0.Rot90CW()
-	m2 := m0.Rot90CW()
-	if m1.Dot(n1) >= 0 {
-		if n0.Dot(n1) >= 0 {
-			if m2.Dot(n1) <= 0 {
-				// n1 is between 0 and 45 degrees clockwise of n0.
-				s = n0
-			} else {
-				// n1 is between 45 and 90 degrees clockwise of n0.
-				p.Add2(pivot.Add(n0).Add(m1.Mul(t)), pivot.Add(m0))
-				s = m0
-			}
-		} else {
-			pm1, n0t := pivot.Add(m1), n0.Mul(t)
-			p.Add2(pivot.Add(n0).Add(m1.Mul(t)), pivot.Add(m0))
-			p.Add2(pm1.Add(n0t), pm1)
-			if m0.Dot(n1) >= 0 {
-				// n1 is between 90 and 135 degrees clockwise of n0.
-				s = m1
-			} else {
-				// n1 is between 135 and 180 degrees clockwise of n0.
-				p.Add2(pm1.Sub(n0t), pivot.Add(m2))
-				s = m2
-			}
-		}
-	} else {
-		if n0.Dot(n1) >= 0 {
-			if m0.Dot(n1) >= 0 {
-				// n1 is between 0 and 45 degrees counter-clockwise of n0.
-				s = n0
-			} else {
-				// n1 is between 45 and 90 degrees counter-clockwise of n0.
-				p.Add2(pivot.Add(n0).Sub(m1.Mul(t)), pivot.Sub(m2))
-				s = m2.Neg()
-			}
-		} else {
-			pm1, n0t := pivot.Sub(m1), n0.Mul(t)
-			p.Add2(pivot.Add(n0).Sub(m1.Mul(t)), pivot.Sub(m2))
-			p.Add2(pm1.Add(n0t), pm1)
-			if m2.Dot(n1) <= 0 {
-				// n1 is between 90 and 135 degrees counter-clockwise of n0.
-				s = m1.Neg()
-			} else {
-				// n1 is between 135 and 180 degrees counter-clockwise of n0.
-				p.Add2(pm1.Sub(n0t), pivot.Sub(m0))
-				s = m0.Neg()
-			}
-		}
-	}
-	// The final quadratic segment has two endpoints s and n1 and the middle
-	// control point is a multiple of s.Add(n1), i.e. it is on the angle bisector
-	// of those two points. The multiple ranges between 128/256 and 150/256 as
-	// the angle between s and n1 ranges between 0 and 45 degrees.
-	// When the angle is 0 degrees (i.e. s and n1 are coincident) then s.Add(n1)
-	// is twice s and so the middle control point of the degenerate quadratic
-	// segment should be half s.Add(n1), and half = 128/256.
-	// When the angle is 45 degrees then 150/256 is the ratio of the lengths of
-	// the two vectors {1, tan(π/8)} and {1 + 1/√2, 1/√2}.
-	// d is the normalized dot product between s and n1. Since the angle ranges
-	// between 0 and 45 degrees then d ranges between 256/256 and 181/256.
-	d := 256 * s.Dot(n1) / r2
-	multiple := Fix32(150 - 22*(d-181)/(256-181))
-	p.Add2(pivot.Add(s.Add(n1).Mul(multiple)), pivot.Add(n1))
-}
-
-// stroke adds the stroked Path q to p, where q consists of exactly one curve.
-func stroke(p Adder, q Path, width Fix32, cr Capper, jr Joiner) {
-	// Stroking is implemented by deriving two paths each width/2 apart from q.
-	// The left-hand-side path is added immediately to p; the right-hand-side
-	// path is accumulated in r, and once we've finished adding the LHS to p
-	// we add the RHS in reverse order.
-	r := Path(make([]Fix32, 0, len(q)))
-	u := width / 2
-	var start, anorm Point
-	a := Point{q[1], q[2]}
-	i := 4
-	for i < len(q) {
-		switch q[i] {
-		case 1:
-			b := Point{q[i+1], q[i+2]}
-			bnorm := b.Sub(a).Norm(u).Rot90CCW()
-			if i == 4 {
-				start = a.Add(bnorm)
-				p.Start(start)
-				r.Start(a.Sub(bnorm))
-			} else {
-				jr.Join(p, &r, u, a, anorm, bnorm)
-			}
-			p.Add1(b.Add(bnorm))
-			r.Add1(b.Sub(bnorm))
-			a, anorm = b, bnorm
-			i += 4
-		case 2:
-			panic("freetype/raster: stroke unimplemented for quadratic segments")
-		case 3:
-			panic("freetype/raster: stroke unimplemented for cubic segments")
-		default:
-			panic("freetype/raster: bad path")
-		}
-	}
-	i = len(r) - 1
-	cr.Cap(p, u, Point{q[len(q)-3], q[len(q)-2]}, anorm.Neg())
-	// Add r reversed to p.
-	// For example, if r consists of a linear segment from A to B followed by a
-	// quadratic segment from B to C to D, then the values of r looks like:
-	// index: 01234567890123
-	// value: 0AA01BB12CCDD2
-	// So, when adding r backwards to p, we want to Add2(C, B) followed by Add1(A).
-loop:
+	i := len(q) - 1
 	for {
-		switch r[i] {
+		switch q[i] {
 		case 0:
-			break loop
+			return
 		case 1:
 			i -= 4
-			p.Add1(Point{r[i-2], r[i-1]})
+			p.Add1(Point{q[i-2], q[i-1]})
 		case 2:
 			i -= 6
-			p.Add2(Point{r[i+2], r[i+3]}, Point{r[i-2], r[i-1]})
+			p.Add2(Point{q[i+2], q[i+3]}, Point{q[i-2], q[i-1]})
 		case 3:
 			i -= 8
-			p.Add3(Point{r[i+4], r[i+5]}, Point{r[i+2], r[i+3]}, Point{r[i-2], r[i-1]})
+			p.Add3(Point{q[i+4], q[i+5]}, Point{q[i+2], q[i+3]}, Point{q[i-2], q[i-1]})
 		default:
 			panic("freetype/raster: bad path")
 		}
 	}
-	// TODO(nigeltao): if q is a closed path then we should join the first and
-	// last segments instead of capping them.
-	pivot := Point{q[1], q[2]}
-	cr.Cap(p, u, pivot, start.Sub(pivot))
 }
