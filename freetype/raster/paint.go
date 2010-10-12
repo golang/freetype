@@ -69,6 +69,11 @@ func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 	}
 }
 
+// NewAlphaOverPainter creates a new AlphaOverPainter for the given image.
+func NewAlphaOverPainter(m *image.Alpha) AlphaOverPainter {
+	return AlphaOverPainter{m}
+}
+
 // An AlphaSrcPainter is a Painter that paints Spans onto an image.Alpha
 // using the Src Porter-Duff composition operator.
 type AlphaSrcPainter struct {
@@ -101,6 +106,11 @@ func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
 			p[i] = color
 		}
 	}
+}
+
+// NewAlphaSrcPainter creates a new AlphaSrcPainter for the given image.
+func NewAlphaSrcPainter(m *image.Alpha) AlphaSrcPainter {
+	return AlphaSrcPainter{m}
 }
 
 type RGBAPainter struct {

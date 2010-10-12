@@ -141,13 +141,12 @@ func main() {
 	contour(r, outside)
 	contour(r, inside)
 	mask := image.NewAlpha(w, h)
-	p := raster.NewAlphaPainter(mask)
-	p.Op = draw.Src
+	p := raster.NewAlphaSrcPainter(mask)
 	r.Rasterize(p)
 
 	// Draw the mask image (in gray) onto an RGBA image.
 	rgba := image.NewRGBA(w, h)
-	gray := image.ColorImage{image.AlphaColor{0x1f}}
+	gray := image.NewColorImage(image.AlphaColor{0x1f})
 	draw.Draw(rgba, rgba.Bounds(), image.Black, image.ZP)
 	draw.DrawMask(rgba, rgba.Bounds(), gray, image.ZP, mask, image.ZP, draw.Over)
 	showNodes(rgba, outside)
