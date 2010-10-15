@@ -69,12 +69,12 @@ func main() {
 	// Read the font data.
 	fontBytes, err := ioutil.ReadFile(*fontfile)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 	font, err := freetype.ParseFont(fontBytes)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 
@@ -106,7 +106,7 @@ func main() {
 	for _, s := range text {
 		_, err = c.DrawString(s, pt)
 		if err != nil {
-			log.Stderr(err)
+			log.Println(err)
 			return
 		}
 		pt.Y += c.PointToFix32(*size * *spacing)
@@ -115,19 +115,19 @@ func main() {
 	// Save that RGBA image to disk.
 	f, err := os.Open("out.png", os.O_CREAT|os.O_WRONLY, 0600)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	defer f.Close()
 	b := bufio.NewWriter(f)
 	err = png.Encode(b, rgba)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	err = b.Flush()
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	fmt.Println("Wrote out.png OK.")

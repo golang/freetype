@@ -68,19 +68,19 @@ func main() {
 	// Save that RGBA image to disk.
 	f, err := os.Open("out.png", os.O_CREAT|os.O_WRONLY, 0600)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	defer f.Close()
 	b := bufio.NewWriter(f)
 	err = png.Encode(b, rgba)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	err = b.Flush()
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 	fmt.Println("Wrote out.png OK.")

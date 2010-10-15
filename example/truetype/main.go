@@ -43,12 +43,12 @@ func main() {
 	fmt.Printf("Loading fontfile %q\n", *fontfile)
 	b, err := ioutil.ReadFile(*fontfile)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 	font, err := truetype.Parse(b)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 	printBounds(font.Bounds())
@@ -61,7 +61,7 @@ func main() {
 	g := truetype.NewGlyphBuf()
 	err = g.Load(font, i0)
 	if err != nil {
-		log.Stderr(err)
+		log.Println(err)
 		return
 	}
 	fmt.Printf("'%c' glyph\n", c0)
