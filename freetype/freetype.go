@@ -69,7 +69,7 @@ type Context struct {
 	// which equals 384 fixed point units per 256 FUnits.
 	// To check this, 1 em * 2048 FUnits per em * 384 fixed point units per 256 FUnits
 	// equals 3072 fixed point units.
-	fontSize float
+	fontSize float64
 	dpi      int
 	upe      int
 	scale    int
@@ -97,8 +97,8 @@ func (c *Context) FUnitToPixelRU(x int) int {
 
 // PointToFix32 converts the given number of points (as in ``a 12 point font'')
 // into fixed point units.
-func (c *Context) PointToFix32(x float) raster.Fix32 {
-	return raster.Fix32(x * float(c.dpi) * (256.0 / 72.0))
+func (c *Context) PointToFix32(x float64) raster.Fix32 {
+	return raster.Fix32(x * float64(c.dpi) * (256.0 / 72.0))
 }
 
 // drawContour draws the given closed contour with the given offset.
@@ -243,7 +243,7 @@ func (c *Context) DrawString(s string, p raster.Point) (raster.Point, os.Error) 
 // recalc recalculates scale and bounds values from the font size, screen
 // resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
-	c.scale = int((c.fontSize * float(c.dpi) * 256 * 256) / (float(c.upe) * 72))
+	c.scale = int((c.fontSize * float64(c.dpi) * 256 * 256) / (float64(c.upe) * 72))
 	if c.font == nil {
 		c.r.SetBounds(0, 0)
 	} else {
@@ -283,7 +283,7 @@ func (c *Context) SetFont(font *truetype.Font) {
 }
 
 // SetFontSize sets the font size in points (as in ``a 12 point font'').
-func (c *Context) SetFontSize(fontSize float) {
+func (c *Context) SetFontSize(fontSize float64) {
 	if c.fontSize == fontSize {
 		return
 	}

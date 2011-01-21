@@ -273,23 +273,22 @@ func (g *GammaCorrectionPainter) Paint(ss []Span, done bool) {
 }
 
 // SetGamma sets the gamma value.
-func (g *GammaCorrectionPainter) SetGamma(gamma float) {
+func (g *GammaCorrectionPainter) SetGamma(gamma float64) {
 	if gamma == 1.0 {
 		g.gammaIsOne = true
 		return
 	}
 	g.gammaIsOne = false
-	gamma64 := float64(gamma)
 	for i := 0; i < 256; i++ {
 		a := float64(i) / 0xff
-		a = math.Pow(a, gamma64)
+		a = math.Pow(a, gamma)
 		g.a[i] = uint16(0xffff * a)
 	}
 }
 
 // NewGammaCorrectionPainter creates a new GammaCorrectionPainter that wraps
 // the given Painter.
-func NewGammaCorrectionPainter(p Painter, gamma float) *GammaCorrectionPainter {
+func NewGammaCorrectionPainter(p Painter, gamma float64) *GammaCorrectionPainter {
 	g := &GammaCorrectionPainter{Painter: p}
 	g.SetGamma(gamma)
 	return g
