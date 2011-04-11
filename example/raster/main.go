@@ -153,7 +153,7 @@ func main() {
 	showNodes(rgba, inside)
 
 	// Save that RGBA image to disk.
-	f, err := os.Open("out.png", os.O_CREAT|os.O_WRONLY, 0600)
+	f, err := os.Create("out.png")
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
