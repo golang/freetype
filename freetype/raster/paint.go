@@ -6,8 +6,8 @@
 package raster
 
 import (
-	"exp/draw"
 	"image"
+	"image/draw"
 	"math"
 )
 

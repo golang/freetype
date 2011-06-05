@@ -9,10 +9,10 @@
 package freetype
 
 import (
-	"exp/draw"
 	"freetype-go.googlecode.com/hg/freetype/raster"
 	"freetype-go.googlecode.com/hg/freetype/truetype"
 	"image"
+	"image/draw"
 	"os"
 )
 
