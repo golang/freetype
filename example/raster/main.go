@@ -7,9 +7,9 @@ package main
 
 import (
 	"bufio"
-	"exp/draw"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/png"
 	"log"
 	"os"
@@ -113,7 +113,7 @@ func showNodes(m *image.RGBA, ns []node) {
 	for _, n := range ns {
 		p := p(n)
 		x, y := int(p.X)/256, int(p.Y)/256
-		if !m.Bounds().Contains(image.Point{x, y}) {
+		if !(image.Point{x, y}).In(m.Bounds()) {
 			continue
 		}
 		var c image.Color
@@ -147,7 +147,7 @@ func main() {
 	// Draw the mask image (in gray) onto an RGBA image.
 	rgba := image.NewRGBA(w, h)
 	gray := image.NewColorImage(image.AlphaColor{0x1f})
-	draw.Draw(rgba, rgba.Bounds(), image.Black, image.ZP)
+	draw.Draw(rgba, rgba.Bounds(), image.Black, image.ZP, draw.Src)
 	draw.DrawMask(rgba, rgba.Bounds(), gray, image.ZP, mask, image.ZP, draw.Over)
 	showNodes(rgba, outside)
 	showNodes(rgba, inside)

@@ -7,11 +7,11 @@ package main
 
 import (
 	"bufio"
-	"exp/draw"
 	"flag"
 	"fmt"
 	"freetype-go.googlecode.com/hg/freetype"
 	"image"
+	"image/draw"
 	"image/png"
 	"io/ioutil"
 	"log"
@@ -86,7 +86,7 @@ func main() {
 		ruler = image.RGBAColor{0x22, 0x22, 0x22, 0xff}
 	}
 	rgba := image.NewRGBA(640, 480)
-	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP)
+	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)
 	c := freetype.NewContext()
 	c.SetDPI(*dpi)
 	c.SetFont(font)
