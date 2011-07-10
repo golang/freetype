@@ -21,17 +21,6 @@ func p(x, y int) raster.Point {
 	return raster.Point{raster.Fix32(x * 256), raster.Fix32(y * 256)}
 }
 
-func clear(m *image.Alpha) {
-	b := m.Bounds()
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		base := y * m.Stride
-		p := m.Pix[base+b.Min.X : base+b.Max.X]
-		for i, _ := range p {
-			p[i] = image.AlphaColor{0}
-		}
-	}
-}
-
 func main() {
 	// Draw a rounded corner that is one pixel wide.
 	r := raster.NewRasterizer(50, 50)
@@ -57,7 +46,7 @@ func main() {
 	painter := raster.NewAlphaSrcPainter(mask)
 	gammas := []float64{1.0 / 10.0, 1.0 / 3.0, 1.0 / 2.0, 2.0 / 3.0, 4.0 / 5.0, 1.0, 5.0 / 4.0, 3.0 / 2.0, 2.0, 3.0, 10.0}
 	for i, g := range gammas {
-		clear(mask)
+		draw.Draw(mask, mask.Bounds(), image.Transparent, image.ZP, draw.Src)
 		r.Rasterize(raster.NewGammaCorrectionPainter(painter, g))
 		x, y := 50*i+25, 25
 		draw.DrawMask(rgba, image.Rect(x, y, x+50, y+50), image.White, image.ZP, mask, image.ZP, draw.Over)

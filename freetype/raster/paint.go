@@ -58,7 +58,7 @@ func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 		if s.X0 >= s.X1 {
 			continue
 		}
-		base := s.Y * r.Image.Stride
+		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
 		a := int(s.A >> 24)
 		for i, c := range p {
@@ -99,7 +99,7 @@ func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
 		if s.X0 >= s.X1 {
 			continue
 		}
-		base := s.Y * r.Image.Stride
+		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
 		color := image.AlphaColor{uint8(s.A >> 24)}
 		for i := range p {
@@ -141,7 +141,7 @@ func (r *RGBAPainter) Paint(ss []Span, done bool) {
 		if s.X0 >= s.X1 {
 			continue
 		}
-		base := s.Y * r.Image.Stride
+		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
 		for i, rgba := range p {
 			// This code is duplicated from drawGlyphOver in $GOROOT/src/pkg/exp/draw/draw.go.
