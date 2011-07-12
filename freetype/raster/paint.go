@@ -62,9 +62,8 @@ func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
 		a := int(s.A >> 24)
 		for i, c := range p {
-			v := int(c.A)
-			v = (v*255 + (255-v)*a) / 255
-			p[i] = image.AlphaColor{uint8(v)}
+			v := int(c)
+			p[i] = uint8((v*255 + (255-v)*a) / 255)
 		}
 	}
 }
@@ -101,7 +100,7 @@ func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
 		}
 		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
-		color := image.AlphaColor{uint8(s.A >> 24)}
+		color := uint8(s.A >> 24)
 		for i := range p {
 			p[i] = color
 		}
@@ -141,32 +140,29 @@ func (r *RGBAPainter) Paint(ss []Span, done bool) {
 		if s.X0 >= s.X1 {
 			continue
 		}
-		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
-		p := r.Image.Pix[base+s.X0 : base+s.X1]
-		for i, rgba := range p {
-			// This code is duplicated from drawGlyphOver in $GOROOT/src/pkg/exp/draw/draw.go.
-			// TODO(nigeltao): Factor out common code into a utility function, once the compiler
-			// can inline such function calls.
-			ma := s.A >> 16
-			const M = 1<<16 - 1
-			if r.Op == draw.Over {
-				dr := uint32(rgba.R)
-				dg := uint32(rgba.G)
-				db := uint32(rgba.B)
-				da := uint32(rgba.A)
-				a := M - (r.ca * ma / M)
-				a *= 0x101
-				dr = (dr*a + r.cr*ma) / M
-				dg = (dg*a + r.cg*ma) / M
-				db = (db*a + r.cb*ma) / M
-				da = (da*a + r.ca*ma) / M
-				p[i] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
-			} else {
-				dr := r.cr * ma / M
-				dg := r.cg * ma / M
-				db := r.cb * ma / M
-				da := r.ca * ma / M
-				p[i] = image.RGBAColor{uint8(dr >> 8), uint8(dg >> 8), uint8(db >> 8), uint8(da >> 8)}
+		// This code is similar to drawGlyphOver in $GOROOT/src/pkg/image/draw/draw.go.
+		ma := s.A >> 16
+		const m = 1<<16 - 1
+		i0 := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride + (s.X0-r.Image.Rect.Min.X)*4
+		i1 := i0 + (s.X1-s.X0)*4
+		if r.Op == draw.Over {
+			for i := i0; i < i1; i += 4 {
+				dr := uint32(r.Image.Pix[i+0])
+				dg := uint32(r.Image.Pix[i+1])
+				db := uint32(r.Image.Pix[i+2])
+				da := uint32(r.Image.Pix[i+3])
+				a := (m - (r.ca * ma / m)) * 0x101
+				r.Image.Pix[i+0] = uint8((dr*a + r.cr*ma) / m >> 8)
+				r.Image.Pix[i+1] = uint8((dg*a + r.cg*ma) / m >> 8)
+				r.Image.Pix[i+2] = uint8((db*a + r.cb*ma) / m >> 8)
+				r.Image.Pix[i+3] = uint8((da*a + r.ca*ma) / m >> 8)
+			}
+		} else {
+			for i := i0; i < i1; i += 4 {
+				r.Image.Pix[i+0] = uint8(r.cr * ma / m >> 8)
+				r.Image.Pix[i+1] = uint8(r.cg * ma / m >> 8)
+				r.Image.Pix[i+2] = uint8(r.cb * ma / m >> 8)
+				r.Image.Pix[i+3] = uint8(r.ca * ma / m >> 8)
 			}
 		}
 	}
