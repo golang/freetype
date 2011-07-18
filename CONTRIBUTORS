@@ -26,6 +26,7 @@
 
 # Please keep the list sorted.
 
+Andrew Gerrand <adg@golang.org>
 Nigel Tao <nigeltao@golang.org>
 Rob Pike <r@golang.org>
 Roger Peppe <rogpeppe@gmail.com>
