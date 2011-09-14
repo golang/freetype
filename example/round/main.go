@@ -31,7 +31,7 @@ func main() {
 	s := raster.Fix32(r * math.Sqrt(2) / 2)
 	t := raster.Fix32(r * math.Tan(math.Pi/8))
 
-	m := image.NewRGBA(800, 600)
+	m := image.NewRGBA(image.Rect(0, 0, 800, 600))
 	draw.Draw(m, m.Bounds(), &image.ColorImage{image.RGBAColor{63, 63, 63, 255}}, image.ZP, draw.Src)
 	mp := raster.NewRGBAPainter(m)
 	mp.SetColor(image.Black)

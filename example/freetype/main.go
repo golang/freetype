@@ -85,7 +85,7 @@ func main() {
 		fg, bg = image.White, image.Black
 		ruler = image.RGBAColor{0x22, 0x22, 0x22, 0xff}
 	}
-	rgba := image.NewRGBA(640, 480)
+	rgba := image.NewRGBA(image.Rect(0, 0, 640, 480))
 	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)
 	c := freetype.NewContext()
 	c.SetDPI(*dpi)

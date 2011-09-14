@@ -39,10 +39,10 @@ func main() {
 		w = 600
 		h = 200
 	)
-	rgba := image.NewRGBA(w, h)
+	rgba := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(rgba, image.Rect(0, 0, w, h/2), image.Black, image.ZP, draw.Src)
 	draw.Draw(rgba, image.Rect(0, h/2, w, h), image.White, image.ZP, draw.Src)
-	mask := image.NewAlpha(50, 50)
+	mask := image.NewAlpha(image.Rect(0, 0, 50, 50))
 	painter := raster.NewAlphaSrcPainter(mask)
 	gammas := []float64{1.0 / 10.0, 1.0 / 3.0, 1.0 / 2.0, 2.0 / 3.0, 4.0 / 5.0, 1.0, 5.0 / 4.0, 3.0 / 2.0, 2.0, 3.0, 10.0}
 	for i, g := range gammas {

@@ -177,7 +177,7 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.A
 		c.drawContour(c.glyphBuf.Point[e0:e1], fx, fy)
 		e0 = e1
 	}
-	a := image.NewAlpha(xmax-xmin, ymax-ymin)
+	a := image.NewAlpha(image.Rect(0, 0, xmax-xmin, ymax-ymin))
 	c.r.Rasterize(raster.NewAlphaSrcPainter(a))
 	return a, image.Point{xmin, ymin}, nil
 }
