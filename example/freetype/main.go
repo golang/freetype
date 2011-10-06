@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"freetype-go.googlecode.com/hg/freetype"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"io/ioutil"
@@ -80,10 +81,10 @@ func main() {
 
 	// Initialize the context.
 	fg, bg := image.Black, image.White
-	ruler := image.RGBAColor{0xdd, 0xdd, 0xdd, 0xff}
+	ruler := color.RGBA{0xdd, 0xdd, 0xdd, 0xff}
 	if *wonb {
 		fg, bg = image.White, image.Black
-		ruler = image.RGBAColor{0x22, 0x22, 0x22, 0xff}
+		ruler = color.RGBA{0x22, 0x22, 0x22, 0xff}
 	}
 	rgba := image.NewRGBA(image.Rect(0, 0, 640, 480))
 	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)

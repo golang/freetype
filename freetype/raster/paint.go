@@ -7,6 +7,7 @@ package raster
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"math"
 )
@@ -169,7 +170,7 @@ func (r *RGBAPainter) Paint(ss []Span, done bool) {
 }
 
 // SetColor sets the color to paint the spans.
-func (r *RGBAPainter) SetColor(c image.Color) {
+func (r *RGBAPainter) SetColor(c color.Color) {
 	r.cr, r.cg, r.cb, r.ca = c.RGBA()
 }
 

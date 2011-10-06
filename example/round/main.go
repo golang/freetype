@@ -14,6 +14,7 @@ import (
 	"bufio"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"log"
@@ -32,7 +33,7 @@ func main() {
 	t := raster.Fix32(r * math.Tan(math.Pi/8))
 
 	m := image.NewRGBA(image.Rect(0, 0, 800, 600))
-	draw.Draw(m, m.Bounds(), &image.ColorImage{image.RGBAColor{63, 63, 63, 255}}, image.ZP, draw.Src)
+	draw.Draw(m, m.Bounds(), &image.Uniform{color.RGBA{63, 63, 63, 255}}, image.ZP, draw.Src)
 	mp := raster.NewRGBAPainter(m)
 	mp.SetColor(image.Black)
 	z := raster.NewRasterizer(800, 600)
@@ -69,7 +70,7 @@ func main() {
 			theta := math.Pi * float64(j) / (n - 1)
 			dx := raster.Fix32(r * math.Cos(theta))
 			dy := raster.Fix32(r * math.Sin(theta))
-			m.Set(int((cx+dx)/256), int((cy+dy)/256), image.RGBAColor{255, 255, 0, 255})
+			m.Set(int((cx+dx)/256), int((cy+dy)/256), color.RGBA{255, 255, 0, 255})
 		}
 	}
 
