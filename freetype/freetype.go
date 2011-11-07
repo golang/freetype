@@ -9,11 +9,11 @@
 package freetype
 
 import (
+	"errors"
 	"freetype-go.googlecode.com/hg/freetype/raster"
 	"freetype-go.googlecode.com/hg/freetype/truetype"
 	"image"
 	"image/draw"
-	"os"
 )
 
 // These constants determine the size of the glyph cache. The cache is keyed
@@ -39,7 +39,7 @@ type cacheEntry struct {
 // ParseFont just calls the Parse function from the freetype/truetype package.
 // It is provided here so that code that imports this package doesn't need
 // to also include the freetype/truetype package.
-func ParseFont(b []byte) (*truetype.Font, os.Error) {
+func ParseFont(b []byte) (*truetype.Font, error) {
 	return truetype.Parse(b)
 }
 
@@ -151,7 +151,7 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 // rasterize returns the glyph mask and integer-pixel offset to render the
 // given glyph at the given sub-pixel offsets.
 // The 24.8 fixed point arguments fx and fy must be in the range [0, 1).
-func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.Alpha, image.Point, os.Error) {
+func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.Alpha, image.Point, error) {
 	if err := c.glyphBuf.Load(c.font, glyph); err != nil {
 		return nil, image.ZP, err
 	}
@@ -161,7 +161,7 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.A
 	xmax := int(fx+c.FUnitToFix32(+int(c.glyphBuf.B.XMax))+0xff) >> 8
 	ymax := int(fy+c.FUnitToFix32(-int(c.glyphBuf.B.YMin))+0xff) >> 8
 	if xmin > xmax || ymin > ymax {
-		return nil, image.ZP, os.NewError("freetype: negative sized glyph")
+		return nil, image.ZP, errors.New("freetype: negative sized glyph")
 	}
 	// A TrueType's glyph's nodes can have negative co-ordinates, but the
 	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin
@@ -185,7 +185,7 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.A
 // glyph returns the glyph mask and integer-pixel offset to render the given
 // glyph at the given sub-pixel point. It is a cache for the rasterize method.
 // Unlike rasterize, p's co-ordinates do not have to be in the range [0, 1).
-func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, image.Point, os.Error) {
+func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, image.Point, error) {
 	// Split p.X and p.Y into their integer and fractional parts.
 	ix, fx := int(p.X>>8), p.X&0xff
 	iy, fy := int(p.Y>>8), p.Y&0xff
@@ -214,9 +214,9 @@ func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, ima
 // For example, drawing a string that starts with a 'J' in an italic font may
 // affect pixels below and left of the point.
 // p is a raster.Point and can therefore represent sub-pixel positions.
-func (c *Context) DrawString(s string, p raster.Point) (raster.Point, os.Error) {
+func (c *Context) DrawString(s string, p raster.Point) (raster.Point, error) {
 	if c.font == nil {
-		return raster.Point{}, os.NewError("freetype: DrawText called with a nil font")
+		return raster.Point{}, errors.New("freetype: DrawText called with a nil font")
 	}
 	prev, hasPrev := truetype.Index(0), false
 	for _, rune := range s {

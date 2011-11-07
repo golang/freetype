@@ -15,7 +15,6 @@ package truetype
 
 import (
 	"fmt"
-	"os"
 )
 
 // An Index is a Font's index of a Unicode code point.
@@ -36,7 +35,7 @@ type HMetric struct {
 // A FormatError reports that the input is not a valid TrueType font.
 type FormatError string
 
-func (e FormatError) String() string {
+func (e FormatError) Error() string {
 	return "freetype: invalid TrueType format: " + string(e)
 }
 
@@ -44,7 +43,7 @@ func (e FormatError) String() string {
 // TrueType feature.
 type UnsupportedError string
 
-func (e UnsupportedError) String() string {
+func (e UnsupportedError) Error() string {
 	return "freetype: unsupported TrueType feature: " + string(e)
 }
 
@@ -78,7 +77,7 @@ func (d *data) skip(n int) {
 }
 
 // readTable returns a slice of the TTF data given by a table's directory entry.
-func readTable(ttf []byte, offsetLength []byte) ([]byte, os.Error) {
+func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 	d := data(offsetLength)
 	offset := int(d.u32())
 	if offset < 0 || offset > 1<<24 || offset > len(ttf) {
@@ -117,7 +116,7 @@ type Font struct {
 	bounds                  Bounds
 }
 
-func (f *Font) parseCmap() os.Error {
+func (f *Font) parseCmap() error {
 	const (
 		cmapFormat4         = 4
 		languageIndependent = 0
@@ -192,7 +191,7 @@ func (f *Font) parseCmap() os.Error {
 	return nil
 }
 
-func (f *Font) parseHead() os.Error {
+func (f *Font) parseHead() error {
 	if len(f.head) != 54 {
 		return FormatError(fmt.Sprintf("bad head length: %d", len(f.head)))
 	}
@@ -215,7 +214,7 @@ func (f *Font) parseHead() os.Error {
 	return nil
 }
 
-func (f *Font) parseHhea() os.Error {
+func (f *Font) parseHhea() error {
 	if len(f.hhea) != 36 {
 		return FormatError(fmt.Sprintf("bad hhea length: %d", len(f.hhea)))
 	}
@@ -227,7 +226,7 @@ func (f *Font) parseHhea() os.Error {
 	return nil
 }
 
-func (f *Font) parseKern() os.Error {
+func (f *Font) parseKern() error {
 	// Apple's TrueType documentation (http://developer.apple.com/fonts/TTRefMan/RM06/Chap6kern.html) says:
 	// "Previous versions of the 'kern' table defined both the version and nTables fields in the header
 	// as UInt16 values and not UInt32 values. Use of the older format on the Mac OS is discouraged
@@ -269,7 +268,7 @@ func (f *Font) parseKern() os.Error {
 	return nil
 }
 
-func (f *Font) parseMaxp() os.Error {
+func (f *Font) parseMaxp() error {
 	if len(f.maxp) != 32 {
 		return FormatError(fmt.Sprintf("bad maxp length: %d", len(f.maxp)))
 	}
@@ -348,7 +347,7 @@ func (f *Font) Kerning(i0, i1 Index) int16 {
 }
 
 // Parse returns a new Font for the given TTF data.
-func Parse(ttf []byte) (font *Font, err os.Error) {
+func Parse(ttf []byte) (font *Font, err error) {
 	if len(ttf) < 12 {
 		err = FormatError("TTF data is too short")
 		return
@@ -503,7 +502,7 @@ func (g *GlyphBuf) decodeCoords(d data, np0 int) {
 
 // Load loads a glyph's contours from a Font, overwriting any previously
 // loaded contours for this GlyphBuf.
-func (g *GlyphBuf) Load(f *Font, i Index) os.Error {
+func (g *GlyphBuf) Load(f *Font, i Index) error {
 	// Reset the GlyphBuf.
 	g.B = Bounds{}
 	g.Point = g.Point[0:0]
@@ -512,7 +511,7 @@ func (g *GlyphBuf) Load(f *Font, i Index) os.Error {
 }
 
 // loadCompound loads a glyph that is composed of other glyphs.
-func (g *GlyphBuf) loadCompound(f *Font, d data, recursion int) os.Error {
+func (g *GlyphBuf) loadCompound(f *Font, d data, recursion int) error {
 	// Flags for decoding a compound glyph. These flags are documented at
 	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
 	const (
@@ -562,7 +561,7 @@ func (g *GlyphBuf) loadCompound(f *Font, d data, recursion int) os.Error {
 }
 
 // load appends a glyph's contours to this GlyphBuf.
-func (g *GlyphBuf) load(f *Font, i Index, recursion int) os.Error {
+func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	if recursion >= 4 {
 		return UnsupportedError("excessive compound glyph recursion")
 	}
