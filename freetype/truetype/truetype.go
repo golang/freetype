@@ -17,7 +17,7 @@ import (
 	"fmt"
 )
 
-// An Index is a Font's index of a Unicode code point.
+// An Index is a Font's index of a rune.
 type Index uint16
 
 // A Bounds holds the co-ordinate range of one or more glyphs.
@@ -287,9 +287,9 @@ func (f *Font) UnitsPerEm() int {
 	return f.unitsPerEm
 }
 
-// Index returns a Font's index for the given Unicode code point.
-func (f *Font) Index(codePoint int) Index {
-	c := uint16(codePoint)
+// Index returns a Font's index for the given rune.
+func (f *Font) Index(x rune) Index {
+	c := uint16(x)
 	n := len(f.cm)
 	for i := 0; i < n; i++ {
 		if f.cm[i].start <= c && c <= f.cm[i].end {

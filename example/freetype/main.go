@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"freetype-go.googlecode.com/hg/freetype"
 	"image"
 	"image/color"
 	"image/draw"
@@ -17,6 +16,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+
+	"code.google.com/p/freetype-go/freetype"
 )
 
 var (

@@ -5,7 +5,7 @@
 
 include $(GOROOT)/src/Make.inc
 
-TARG=freetype-go.googlecode.com/hg/freetype/truetype
+TARG=code.google.com/p/freetype-go/freetype/truetype
 GOFILES=\
 	truetype.go\
 

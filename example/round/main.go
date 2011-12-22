@@ -21,7 +21,7 @@ import (
 	"math"
 	"os"
 
-	"freetype-go.googlecode.com/hg/freetype/raster"
+	"code.google.com/p/freetype-go/freetype/raster"
 )
 
 func main() {
