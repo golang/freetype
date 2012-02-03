@@ -1,6 +1,9 @@
 This is a port of the Freetype font rasterizer (www.freetype.org) to the Go
 programming language (golang.org).
 
+To download and install from source:
+$ go get code.google.com/p/freetype-go/freetype
+
 It is an incomplete port:
   * It only supports TrueType fonts, and not Type 1 fonts nor bitmap fonts.
   * It only supports the Unicode encoding.
