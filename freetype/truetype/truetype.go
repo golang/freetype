@@ -568,11 +568,11 @@ func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	// Find the relevant slice of f.glyf.
 	var g0, g1 uint32
 	if f.locaOffsetFormat == locaOffsetFormatShort {
-		d := data(f.loca[2*i:])
+		d := data(f.loca[2*int(i):])
 		g0 = 2 * uint32(d.u16())
 		g1 = 2 * uint32(d.u16())
 	} else {
-		d := data(f.loca[4*i:])
+		d := data(f.loca[4*int(i):])
 		g0 = d.u32()
 		g1 = d.u32()
 	}
