@@ -3,7 +3,7 @@ syntax:glob
 .git
 .gitignore
 *.[568ao]
-*.ao
+*.a[568o]
 *.so
 *.pyc
 ._*
@@ -11,10 +11,25 @@ syntax:glob
 [568a].out
 *~
 *.orig
+*.rej
+*.exe
+.*.swp
 core
+*.cgo*.go
+*.cgo*.c
+_cgo_*
 _obj
 _test
+_testmain.go
+build.out
+test.out
+goinstall.log
+last-change
+VERSION.cache
 out.png
 
 syntax:regexp
+^bin/
+^pkg/
+^src/cmd/(.*)/6?\1$
 ^.*/core.[0-9]*$
