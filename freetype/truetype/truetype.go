@@ -80,14 +80,18 @@ func (d *data) skip(n int) {
 func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 	d := data(offsetLength)
 	offset := int(d.u32())
-	if offset < 0 || offset > 1<<24 || offset > len(ttf) {
-		return nil, FormatError(fmt.Sprintf("offset too large: %d", offset))
+	if offset < 0 {
+		return nil, FormatError(fmt.Sprintf("offset too large: %d", uint32(offset)))
 	}
 	length := int(d.u32())
-	if length < 0 || length > 1<<24 || offset+length > len(ttf) {
-		return nil, FormatError(fmt.Sprintf("length too large: %d", length))
+	if length < 0 {
+		return nil, FormatError(fmt.Sprintf("length too large: %d", uint32(length)))
 	}
-	return ttf[offset : offset+length], nil
+	end := offset + length
+	if end < 0 || end > len(ttf) {
+		return nil, FormatError(fmt.Sprintf("offset + length too large: %d", uint32(offset)+uint32(length)))
+	}
+	return ttf[offset:end], nil
 }
 
 const (
