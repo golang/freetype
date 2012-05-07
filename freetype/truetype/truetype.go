@@ -3,9 +3,9 @@
 // FreeType License or the GNU General Public License version 2 (or
 // any later version), both of which can be found in the LICENSE file.
 
-// The truetype package provides a parser for the TTF file format. That format
-// is documented at http://developer.apple.com/fonts/TTRefMan/ and
-// http://www.microsoft.com/typography/otspec/
+// The truetype package provides a parser for the TTF and TTC file formats.
+// Those formats are documented at http://developer.apple.com/fonts/TTRefMan/
+// and http://www.microsoft.com/typography/otspec/
 //
 // All numbers (e.g. bounds, point co-ordinates, font metrics) are measured in
 // FUnits. To convert from FUnits to pixels, scale by
@@ -350,15 +350,52 @@ func (f *Font) Kerning(i0, i1 Index) int16 {
 	return 0
 }
 
-// Parse returns a new Font for the given TTF data.
+// Parse returns a new Font for the given TTF or TTC data.
+//
+// For TrueType Collections, the first font in the collection is parsed.
 func Parse(ttf []byte) (font *Font, err error) {
-	if len(ttf) < 12 {
+	return parse(ttf, 0)
+}
+
+func parse(ttf []byte, offset int) (font *Font, err error) {
+	if len(ttf)-offset < 12 {
 		err = FormatError("TTF data is too short")
 		return
 	}
-	d := data(ttf[0:])
-	if d.u32() != 0x00010000 {
-		err = FormatError("bad version")
+	d := data(ttf[offset:])
+	switch d.u32() {
+	case 0x00010000:
+		// No-op.
+	case 0x74746366: // "ttcf" as a big-endian uint32.
+		if offset != 0 {
+			err = FormatError("recursive TTC")
+			return
+		}
+		if d.u32() != 0x00010000 {
+			// TODO: support TTC version 2.0, once I have such a .ttc file to test with.
+			err = FormatError("bad TTC version")
+			return
+		}
+		numFonts := int(d.u32())
+		if numFonts <= 0 {
+			err = FormatError("bad number of TTC fonts")
+			return
+		}
+		if len(d)/4 < numFonts {
+			err = FormatError("TTC offset table is too short")
+			return
+		}
+		// TODO: provide an API to select which font in a TrueType collection to return,
+		// not just the first one. This may require an API to parse a TTC's name tables,
+		// so users of this package can select the font in a TTC by name.
+		offset := int(d.u32())
+		if offset <= 0 || offset > len(ttf) {
+			err = FormatError("bad TTC offset")
+			return
+		}
+		return parse(ttf, offset)
+	default:
+		err = FormatError("bad TTF version")
 		return
 	}
 	n := int(d.u16())
