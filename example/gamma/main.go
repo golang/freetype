@@ -18,7 +18,10 @@ import (
 )
 
 func p(x, y int) raster.Point {
-	return raster.Point{raster.Fix32(x * 256), raster.Fix32(y * 256)}
+	return raster.Point{
+		X: raster.Fix32(x * 256),
+		Y: raster.Fix32(y * 256),
+	}
 }
 
 func main() {

@@ -84,7 +84,10 @@ var inside = []node{
 
 func p(n node) raster.Point {
 	x, y := 20+n.x/4, 380-n.y/4
-	return raster.Point{raster.Fix32(x * 256), raster.Fix32(y * 256)}
+	return raster.Point{
+		X: raster.Fix32(x * 256),
+		Y: raster.Fix32(y * 256),
+	}
 }
 
 func contour(r *raster.Rasterizer, ns []node) {

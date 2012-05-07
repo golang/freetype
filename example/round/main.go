@@ -33,7 +33,7 @@ func main() {
 	t := raster.Fix32(r * math.Tan(math.Pi/8))
 
 	m := image.NewRGBA(image.Rect(0, 0, 800, 600))
-	draw.Draw(m, m.Bounds(), &image.Uniform{color.RGBA{63, 63, 63, 255}}, image.ZP, draw.Src)
+	draw.Draw(m, m.Bounds(), image.NewUniform(color.RGBA{63, 63, 63, 255}), image.ZP, draw.Src)
 	mp := raster.NewRGBAPainter(m)
 	mp.SetColor(image.Black)
 	z := raster.NewRasterizer(800, 600)
@@ -41,23 +41,23 @@ func main() {
 	for i := 0; i < n; i++ {
 		cx := raster.Fix32(25600 + 51200*(i%4))
 		cy := raster.Fix32(2560 + 32000*(i/4))
-		c := raster.Point{cx, cy}
+		c := raster.Point{X: cx, Y: cy}
 		theta := math.Pi * (0.5 + 0.5*float64(i)/(n-1))
 		dx := raster.Fix32(r * math.Cos(theta))
 		dy := raster.Fix32(r * math.Sin(theta))
-		d := raster.Point{dx, dy}
+		d := raster.Point{X: dx, Y: dy}
 		// Draw a quarter-circle approximated by two quadratic segments,
 		// with each segment spanning 45 degrees.
 		z.Start(c)
-		z.Add1(c.Add(raster.Point{r, 0}))
-		z.Add2(c.Add(raster.Point{r, t}), c.Add(raster.Point{s, s}))
-		z.Add2(c.Add(raster.Point{t, r}), c.Add(raster.Point{0, r}))
+		z.Add1(c.Add(raster.Point{X: r, Y: 0}))
+		z.Add2(c.Add(raster.Point{X: r, Y: t}), c.Add(raster.Point{X: s, Y: s}))
+		z.Add2(c.Add(raster.Point{X: t, Y: r}), c.Add(raster.Point{X: 0, Y: r}))
 		// Add another quadratic segment whose angle ranges between 0 and 90 degrees.
 		// For an explanation of the magic constants 22, 150, 181 and 256, read the
 		// comments in the freetype/raster package.
-		dot := 256 * d.Dot(raster.Point{0, r}) / (r * r)
+		dot := 256 * d.Dot(raster.Point{X: 0, Y: r}) / (r * r)
 		multiple := raster.Fix32(150 - 22*(dot-181)/(256-181))
-		z.Add2(c.Add(raster.Point{dx, r + dy}.Mul(multiple)), c.Add(d))
+		z.Add2(c.Add(raster.Point{X: dx, Y: r + dy}.Mul(multiple)), c.Add(d))
 		// Close the curve.
 		z.Add1(c)
 	}

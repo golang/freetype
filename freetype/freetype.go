@@ -47,7 +47,10 @@ func ParseFont(b []byte) (*truetype.Font, error) {
 // Pt converts from a co-ordinate pair measured in pixels to a raster.Point
 // co-ordinate pair measured in raster.Fix32 units.
 func Pt(x, y int) raster.Point {
-	return raster.Point{raster.Fix32(x << 8), raster.Fix32(y << 8)}
+	return raster.Point{
+		X: raster.Fix32(x << 8),
+		Y: raster.Fix32(y << 8),
+	}
 }
 
 // A Context holds the state for drawing text in a given font and size.
@@ -111,15 +114,15 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	// start is the same thing measured in fixed point units and positive Y
 	// going downwards, and offset by (dx, dy)
 	start := raster.Point{
-		dx + c.FUnitToFix32(int(ps[0].X)),
-		dy + c.FUnitToFix32(-int(ps[0].Y)),
+		X: dx + c.FUnitToFix32(int(ps[0].X)),
+		Y: dy + c.FUnitToFix32(-int(ps[0].Y)),
 	}
 	c.r.Start(start)
 	q0, on0 := start, true
 	for _, p := range ps[1:] {
 		q := raster.Point{
-			dx + c.FUnitToFix32(int(p.X)),
-			dy + c.FUnitToFix32(-int(p.Y)),
+			X: dx + c.FUnitToFix32(int(p.X)),
+			Y: dy + c.FUnitToFix32(-int(p.Y)),
 		}
 		on := p.Flags&0x01 != 0
 		if on {
@@ -133,8 +136,8 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 				// No-op.
 			} else {
 				mid := raster.Point{
-					(q0.X + q.X) / 2,
-					(q0.Y + q.Y) / 2,
+					X: (q0.X + q.X) / 2,
+					Y: (q0.Y + q.Y) / 2,
 				}
 				c.r.Add2(q0, mid)
 			}
