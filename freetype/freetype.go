@@ -298,7 +298,7 @@ func (c *Context) SetDst(dst draw.Image) {
 }
 
 // SetSrc sets the source image for draw operations. This is typically an
-// image.ColorImage.
+// image.Uniform.
 func (c *Context) SetSrc(src image.Image) {
 	c.src = src
 }
