@@ -47,43 +47,23 @@ func (e UnsupportedError) Error() string {
 	return "freetype: unsupported TrueType feature: " + string(e)
 }
 
-// data interprets a byte slice as a stream of integer values.
-type data []byte
-
-// u32 returns the next big-endian uint32.
-func (d *data) u32() uint32 {
-	x := uint32((*d)[0])<<24 | uint32((*d)[1])<<16 | uint32((*d)[2])<<8 | uint32((*d)[3])
-	*d = (*d)[4:]
-	return x
+// u32 returns the big-endian uint32 at b[i:].
+func u32(b []byte, i int) uint32 {
+	return uint32(b[i])<<24 | uint32(b[i+1])<<16 | uint32(b[i+2])<<8 | uint32(b[i+3])
 }
 
-// u16 returns the next big-endian uint16.
-func (d *data) u16() uint16 {
-	x := uint16((*d)[0])<<8 | uint16((*d)[1])
-	*d = (*d)[2:]
-	return x
-}
-
-// u8 returns the next uint8.
-func (d *data) u8() uint8 {
-	x := (*d)[0]
-	*d = (*d)[1:]
-	return x
-}
-
-// skip skips the next n bytes.
-func (d *data) skip(n int) {
-	*d = (*d)[n:]
+// u16 returns the big-endian uint16 at b[i:].
+func u16(b []byte, i int) uint16 {
+	return uint16(b[i])<<8 | uint16(b[i+1])
 }
 
 // readTable returns a slice of the TTF data given by a table's directory entry.
 func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
-	d := data(offsetLength)
-	offset := int(d.u32())
+	offset := int(u32(offsetLength, 0))
 	if offset < 0 {
 		return nil, FormatError(fmt.Sprintf("offset too large: %d", uint32(offset)))
 	}
-	length := int(d.u32())
+	length := int(u32(offsetLength, 4))
 	if length < 0 {
 		return nil, FormatError(fmt.Sprintf("length too large: %d", uint32(length)))
 	}
@@ -134,16 +114,16 @@ func (f *Font) parseCmap() error {
 	if len(f.cmap) < 4 {
 		return FormatError("cmap too short")
 	}
-	d := data(f.cmap[2:])
-	nsubtab := int(d.u16())
+	nsubtab := int(u16(f.cmap, 2))
 	if len(f.cmap) < 8*nsubtab+4 {
 		return FormatError("cmap too short")
 	}
-	offset, found := 0, false
+	offset, found, x := 0, false, 4
 	for i := 0; i < nsubtab; i++ {
 		// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
 		// All values are big-endian.
-		pidPsid, o := d.u32(), d.u32()
+		pidPsid, o := u32(f.cmap, x), u32(f.cmap, x+4)
+		x += 8
 		// We prefer the Unicode cmap encoding. Failing to find that, we fall
 		// back onto the Microsoft cmap encoding.
 		if pidPsid == unicodeEncoding {
@@ -161,37 +141,39 @@ func (f *Font) parseCmap() error {
 		return FormatError("bad cmap offset")
 	}
 
-	d = data(f.cmap[offset:])
-	cmapFormat := d.u16()
+	cmapFormat := u16(f.cmap, offset)
 	if cmapFormat != cmapFormat4 {
 		return UnsupportedError(fmt.Sprintf("cmap format: %d", cmapFormat))
 	}
-	d.skip(2)
-	language := d.u16()
+	language := u16(f.cmap, offset+4)
 	if language != languageIndependent {
 		return UnsupportedError(fmt.Sprintf("language: %d", language))
 	}
-	segCountX2 := int(d.u16())
+	segCountX2 := int(u16(f.cmap, offset+6))
 	if segCountX2%2 == 1 {
 		return FormatError(fmt.Sprintf("bad segCountX2: %d", segCountX2))
 	}
 	segCount := segCountX2 / 2
-	d.skip(6)
+	offset += 14
 	f.cm = make([]cm, segCount)
 	for i := 0; i < segCount; i++ {
-		f.cm[i].end = d.u16()
+		f.cm[i].end = u16(f.cmap, offset)
+		offset += 2
 	}
-	d.skip(2)
+	offset += 2
 	for i := 0; i < segCount; i++ {
-		f.cm[i].start = d.u16()
+		f.cm[i].start = u16(f.cmap, offset)
+		offset += 2
 	}
 	for i := 0; i < segCount; i++ {
-		f.cm[i].delta = d.u16()
+		f.cm[i].delta = u16(f.cmap, offset)
+		offset += 2
 	}
 	for i := 0; i < segCount; i++ {
-		f.cm[i].offset = d.u16()
+		f.cm[i].offset = u16(f.cmap, offset)
+		offset += 2
 	}
-	f.cmapIndexes = []byte(d)
+	f.cmapIndexes = f.cmap[offset:]
 	return nil
 }
 
@@ -199,15 +181,12 @@ func (f *Font) parseHead() error {
 	if len(f.head) != 54 {
 		return FormatError(fmt.Sprintf("bad head length: %d", len(f.head)))
 	}
-	d := data(f.head[18:])
-	f.unitsPerEm = int(d.u16())
-	d.skip(16)
-	f.bounds.XMin = int16(d.u16())
-	f.bounds.YMin = int16(d.u16())
-	f.bounds.XMax = int16(d.u16())
-	f.bounds.YMax = int16(d.u16())
-	d.skip(6)
-	switch i := d.u16(); i {
+	f.unitsPerEm = int(u16(f.head, 18))
+	f.bounds.XMin = int16(u16(f.head, 36))
+	f.bounds.YMin = int16(u16(f.head, 38))
+	f.bounds.XMax = int16(u16(f.head, 40))
+	f.bounds.YMax = int16(u16(f.head, 42))
+	switch i := u16(f.head, 50); i {
 	case 0:
 		f.locaOffsetFormat = locaOffsetFormatShort
 	case 1:
@@ -222,8 +201,7 @@ func (f *Font) parseHhea() error {
 	if len(f.hhea) != 36 {
 		return FormatError(fmt.Sprintf("bad hhea length: %d", len(f.hhea)))
 	}
-	d := data(f.hhea[34:])
-	f.nHMetric = int(d.u16())
+	f.nHMetric = int(u16(f.hhea, 34))
 	if 4*f.nHMetric+2*(f.nGlyph-f.nHMetric) != len(f.hmtx) {
 		return FormatError(fmt.Sprintf("bad hmtx length: %d", len(f.hmtx)))
 	}
@@ -249,23 +227,22 @@ func (f *Font) parseKern() error {
 	if len(f.kern) < 18 {
 		return FormatError("kern data too short")
 	}
-	d := data(f.kern[0:])
-	version := d.u16()
+	version, offset := u16(f.kern, 0), 2
 	if version != 0 {
 		return UnsupportedError(fmt.Sprintf("kern version: %d", version))
 	}
-	n := d.u16()
+	n, offset := u16(f.kern, offset), offset+2
 	if n != 1 {
 		return UnsupportedError(fmt.Sprintf("kern nTables: %d", n))
 	}
-	d.skip(2)
-	length := int(d.u16())
-	coverage := d.u16()
+	offset += 2
+	length, offset := int(u16(f.kern, offset)), offset+2
+	coverage, offset := u16(f.kern, offset), offset+2
 	if coverage != 0x0001 {
 		// We only support horizontal kerning.
 		return UnsupportedError(fmt.Sprintf("kern coverage: 0x%04x", coverage))
 	}
-	f.nKern = int(d.u16())
+	f.nKern, offset = int(u16(f.kern, offset)), offset+2
 	if 6*f.nKern != length-14 {
 		return FormatError("bad kern table length")
 	}
@@ -276,8 +253,7 @@ func (f *Font) parseMaxp() error {
 	if len(f.maxp) != 32 {
 		return FormatError(fmt.Sprintf("bad maxp length: %d", len(f.maxp)))
 	}
-	d := data(f.maxp[4:])
-	f.nGlyph = int(d.u16())
+	f.nGlyph = int(u16(f.maxp, 4))
 	return nil
 }
 
@@ -301,11 +277,10 @@ func (f *Font) Index(x rune) Index {
 				return Index(c + f.cm[i].delta)
 			}
 			offset := int(f.cm[i].offset) + 2*(i-n+int(c-f.cm[i].start))
-			d := data(f.cmapIndexes[offset:])
-			return Index(d.u16())
+			return Index(u16(f.cmapIndexes, offset))
 		}
 	}
-	return Index(0)
+	return 0
 }
 
 // HMetric returns the horizontal metrics for the glyph with the given index.
@@ -315,17 +290,13 @@ func (f *Font) HMetric(i Index) HMetric {
 		return HMetric{}
 	}
 	if j >= f.nHMetric {
-		var hm HMetric
 		p := 4 * (f.nHMetric - 1)
-		d := data(f.hmtx[p:])
-		hm.AdvanceWidth = d.u16()
-		p += 2*(j-f.nHMetric) + 4
-		d = data(f.hmtx[p:])
-		hm.LeftSideBearing = int16(d.u16())
-		return hm
+		return HMetric{
+			u16(f.hmtx, p),
+			int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4)),
+		}
 	}
-	d := data(f.hmtx[4*j:])
-	return HMetric{d.u16(), int16(d.u16())}
+	return HMetric{u16(f.hmtx, 4*j), int16(u16(f.hmtx, 4*j+2))}
 }
 
 // Kerning returns the kerning for the given glyph pair.
@@ -337,14 +308,13 @@ func (f *Font) Kerning(i0, i1 Index) int16 {
 	lo, hi := 0, f.nKern
 	for lo < hi {
 		i := (lo + hi) / 2
-		d := data(f.kern[18+6*i:])
-		ig := d.u32()
+		ig := u32(f.kern, 18+6*i)
 		if ig < g {
 			lo = i + 1
 		} else if ig > g {
 			hi = i
 		} else {
-			return int16(d.u16())
+			return int16(u16(f.kern, 22+6*i))
 		}
 	}
 	return 0
@@ -362,33 +332,35 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 		err = FormatError("TTF data is too short")
 		return
 	}
-	d := data(ttf[offset:])
-	switch d.u32() {
+	originalOffset := offset
+	magic, offset := u32(ttf, offset), offset+4
+	switch magic {
 	case 0x00010000:
 		// No-op.
 	case 0x74746366: // "ttcf" as a big-endian uint32.
-		if offset != 0 {
+		if originalOffset != 0 {
 			err = FormatError("recursive TTC")
 			return
 		}
-		if d.u32() != 0x00010000 {
+		ttcVersion, offset := u32(ttf, offset), offset+4
+		if ttcVersion != 0x00010000 {
 			// TODO: support TTC version 2.0, once I have such a .ttc file to test with.
 			err = FormatError("bad TTC version")
 			return
 		}
-		numFonts := int(d.u32())
+		numFonts, offset := int(u32(ttf, offset)), offset+4
 		if numFonts <= 0 {
 			err = FormatError("bad number of TTC fonts")
 			return
 		}
-		if len(d)/4 < numFonts {
+		if len(ttf[offset:])/4 < numFonts {
 			err = FormatError("TTC offset table is too short")
 			return
 		}
 		// TODO: provide an API to select which font in a TrueType collection to return,
 		// not just the first one. This may require an API to parse a TTC's name tables,
 		// so users of this package can select the font in a TTC by name.
-		offset := int(d.u32())
+		offset = int(u32(ttf, offset))
 		if offset <= 0 || offset > len(ttf) {
 			err = FormatError("bad TTC offset")
 			return
@@ -398,7 +370,7 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 		err = FormatError("bad TTF version")
 		return
 	}
-	n := int(d.u16())
+	n, offset := int(u16(ttf, offset)), offset+2
 	if len(ttf) < 16*n+12 {
 		err = FormatError("TTF data is too short")
 		return

@@ -47,36 +47,40 @@ const (
 
 // decodeFlags decodes a glyph's run-length encoded flags,
 // and returns the remaining data.
-func (g *GlyphBuf) decodeFlags(d data, np0 int) data {
+func (g *GlyphBuf) decodeFlags(d []byte, offset int, np0 int) (offset1 int) {
 	for i := np0; i < len(g.Point); {
-		c := d.u8()
+		c := d[offset]
+		offset++
 		g.Point[i].Flags = c
 		i++
 		if c&flagRepeat != 0 {
-			count := d.u8()
+			count := d[offset]
+			offset++
 			for ; count > 0; count-- {
 				g.Point[i].Flags = c
 				i++
 			}
 		}
 	}
-	return d
+	return offset
 }
 
 // decodeCoords decodes a glyph's delta encoded co-ordinates.
-func (g *GlyphBuf) decodeCoords(d data, np0 int) {
+func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0 int) int {
 	var x int16
 	for i := np0; i < len(g.Point); i++ {
 		f := g.Point[i].Flags
 		if f&flagXShortVector != 0 {
-			dx := int16(d.u8())
+			dx := int16(d[offset])
+			offset++
 			if f&flagPositiveXShortVector == 0 {
 				x -= dx
 			} else {
 				x += dx
 			}
 		} else if f&flagThisXIsSame == 0 {
-			x += int16(d.u16())
+			x += int16(u16(d, offset))
+			offset += 2
 		}
 		g.Point[i].X = x
 	}
@@ -84,17 +88,20 @@ func (g *GlyphBuf) decodeCoords(d data, np0 int) {
 	for i := np0; i < len(g.Point); i++ {
 		f := g.Point[i].Flags
 		if f&flagYShortVector != 0 {
-			dy := int16(d.u8())
+			dy := int16(d[offset])
+			offset++
 			if f&flagPositiveYShortVector == 0 {
 				y -= dy
 			} else {
 				y += dy
 			}
 		} else if f&flagThisYIsSame == 0 {
-			y += int16(d.u16())
+			y += int16(u16(d, offset))
+			offset += 2
 		}
 		g.Point[i].Y = y
 	}
+	return offset
 }
 
 // Load loads a glyph's contours from a Font, overwriting any previously
@@ -102,13 +109,13 @@ func (g *GlyphBuf) decodeCoords(d data, np0 int) {
 func (g *GlyphBuf) Load(f *Font, i Index) error {
 	// Reset the GlyphBuf.
 	g.B = Bounds{}
-	g.Point = g.Point[0:0]
-	g.End = g.End[0:0]
+	g.Point = g.Point[:0]
+	g.End = g.End[:0]
 	return g.load(f, i, 0)
 }
 
 // loadCompound loads a glyph that is composed of other glyphs.
-func (g *GlyphBuf) loadCompound(f *Font, d data, recursion int) error {
+func (g *GlyphBuf) loadCompound(f *Font, glyf []byte, offset, recursion int) error {
 	// Flags for decoding a compound glyph. These flags are documented at
 	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
 	const (
@@ -125,15 +132,17 @@ func (g *GlyphBuf) loadCompound(f *Font, d data, recursion int) error {
 		flagOverlapCompound
 	)
 	for {
-		flags := d.u16()
-		component := d.u16()
+		flags := u16(glyf, offset)
+		component := u16(glyf, offset+2)
 		var dx, dy int16
 		if flags&flagArg1And2AreWords != 0 {
-			dx = int16(d.u16())
-			dy = int16(d.u16())
+			dx = int16(u16(glyf, offset+4))
+			dy = int16(u16(glyf, offset+6))
+			offset += 8
 		} else {
-			dx = int16(int8(d.u8()))
-			dy = int16(int8(d.u8()))
+			dx = int16(int8(glyf[offset+4]))
+			dy = int16(int8(glyf[offset+5]))
+			offset += 6
 		}
 		if flags&flagArgsAreXYValues == 0 {
 			return UnsupportedError("compound glyph transform vector")
@@ -165,26 +174,25 @@ func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	// Find the relevant slice of f.glyf.
 	var g0, g1 uint32
 	if f.locaOffsetFormat == locaOffsetFormatShort {
-		d := data(f.loca[2*int(i):])
-		g0 = 2 * uint32(d.u16())
-		g1 = 2 * uint32(d.u16())
+		g0 = 2 * uint32(u16(f.loca, 2*int(i)))
+		g1 = 2 * uint32(u16(f.loca, 2*int(i)+2))
 	} else {
-		d := data(f.loca[4*int(i):])
-		g0 = d.u32()
-		g1 = d.u32()
+		g0 = u32(f.loca, 4*int(i))
+		g1 = u32(f.loca, 4*int(i)+4)
 	}
 	if g0 == g1 {
 		return nil
 	}
-	d := data(f.glyf[g0:g1])
+	glyf := f.glyf[g0:g1]
 	// Decode the contour end indices.
-	ne := int(int16(d.u16()))
-	g.B.XMin = int16(d.u16())
-	g.B.YMin = int16(d.u16())
-	g.B.XMax = int16(d.u16())
-	g.B.YMax = int16(d.u16())
+	ne := int(int16(u16(glyf, 0)))
+	g.B.XMin = int16(u16(glyf, 2))
+	g.B.YMin = int16(u16(glyf, 4))
+	g.B.XMax = int16(u16(glyf, 6))
+	g.B.YMax = int16(u16(glyf, 8))
+	offset := 10
 	if ne == -1 {
-		return g.loadCompound(f, d, recursion)
+		return g.loadCompound(f, glyf, offset, recursion)
 	} else if ne < 0 {
 		// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
 		// "the values -2, -3, and so forth, are reserved for future use."
@@ -193,25 +201,26 @@ func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	ne0, np0 := len(g.End), len(g.Point)
 	ne += ne0
 	if ne <= cap(g.End) {
-		g.End = g.End[0:ne]
+		g.End = g.End[:ne]
 	} else {
 		g.End = make([]int, ne, ne*2)
 	}
 	for i := ne0; i < ne; i++ {
-		g.End[i] = 1 + np0 + int(d.u16())
+		g.End[i] = 1 + np0 + int(u16(glyf, offset))
+		offset += 2
 	}
 	// Skip the TrueType hinting instructions.
-	instrLen := int(d.u16())
-	d.skip(instrLen)
+	instrLen := int(u16(glyf, offset))
+	offset += 2 + instrLen
 	// Decode the points.
 	np := int(g.End[ne-1])
 	if np <= cap(g.Point) {
-		g.Point = g.Point[0:np]
+		g.Point = g.Point[:np]
 	} else {
 		g.Point = make([]Point, np, np*2)
 	}
-	d = g.decodeFlags(d, np0)
-	g.decodeCoords(d, np0)
+	offset = g.decodeFlags(glyf, offset, np0)
+	g.decodeCoords(glyf, offset, np0)
 	return nil
 }
 
