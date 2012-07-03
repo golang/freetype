@@ -3,7 +3,7 @@
 // FreeType License or the GNU General Public License version 2 (or
 // any later version), both of which can be found in the LICENSE file.
 
-// The truetype package provides a parser for the TTF and TTC file formats.
+// Package truetype provides a parser for the TTF and TTC file formats.
 // Those formats are documented at http://developer.apple.com/fonts/TTRefMan/
 // and http://www.microsoft.com/typography/otspec/
 //
