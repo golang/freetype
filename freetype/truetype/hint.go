@@ -18,6 +18,9 @@ type hinter struct {
 }
 
 func (h *hinter) run(program []byte) error {
+	if len(program) > 50000 {
+		return errors.New("truetype: hinting: too many instructions")
+	}
 	var (
 		steps, pc, top int
 		opcode         uint8
@@ -25,7 +28,7 @@ func (h *hinter) run(program []byte) error {
 	for int(pc) < len(program) {
 		steps++
 		if steps == 100000 {
-			return errors.New("truetype: hinting: too many instructions")
+			return errors.New("truetype: hinting: too many steps")
 		}
 		opcode = program[pc]
 		if popCount[opcode] == q {
@@ -35,6 +38,10 @@ func (h *hinter) run(program []byte) error {
 			return errors.New("truetype: hinting: stack underflow")
 		}
 		switch opcode {
+
+		case opELSE:
+			opcode = 1
+			goto ifelse
 
 		case opDUP:
 			if int(top) >= len(h.stack) {
@@ -78,6 +85,9 @@ func (h *hinter) run(program []byte) error {
 			opcode = 0x80
 			goto push
 
+		case opDEBUG:
+			// No-op.
+
 		case opLT:
 			h.stack[top-2] = bool2int32(h.stack[top-2] < h.stack[top-1])
 			top--
@@ -112,6 +122,16 @@ func (h *hinter) run(program []byte) error {
 
 		case opNOT:
 			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
+
+		case opIF:
+			top--
+			if h.stack[top] == 0 {
+				opcode = 0
+				goto ifelse
+			}
+
+		case opEIF:
+			// No-op.
 
 		case opADD:
 			h.stack[top-2] += h.stack[top-1]
@@ -162,8 +182,55 @@ func (h *hinter) run(program []byte) error {
 		pc++
 		continue
 
+	ifelse:
+		// Skip past bytecode until the next ELSE (if opcode == 0) or the
+		// next EIF (for all opcodes). Opcode == 0 means that we have come
+		// from an IF. Opcode == 1 means that we have come from an ELSE.
+		{
+		ifelseloop:
+			for depth := 0; ; {
+				pc++
+				if pc >= len(program) {
+					return errors.New("truetype: hinting: unbalanced IF or ELSE")
+				}
+				switch program[pc] {
+				case opIF:
+					depth++
+				case opELSE:
+					if depth == 0 && opcode == 0 {
+						break ifelseloop
+					}
+				case opEIF:
+					depth--
+					if depth < 0 {
+						break ifelseloop
+					}
+				case opNPUSHB:
+					pc++
+					if pc >= len(program) {
+						return errors.New("truetype: hinting: unbalanced IF or ELSE")
+					}
+					pc += int(program[pc])
+				case opNPUSHW:
+					pc++
+					if pc >= len(program) {
+						return errors.New("truetype: hinting: unbalanced IF or ELSE")
+					}
+					pc += 2 * int(program[pc])
+				case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011, opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
+					pc += int(program[pc] - (opPUSHB000 - 1))
+				case opPUSHW000, opPUSHW001, opPUSHW010, opPUSHW011, opPUSHW100, opPUSHW101, opPUSHW110, opPUSHW111:
+					pc += 2 * int(program[pc]-(opPUSHW000-1))
+				default:
+					// No-op.
+				}
+			}
+			pc++
+			continue
+		}
+
 	push:
-		// push n elements from the program to the stack, where n is the low 7 bits of
+		// Push n elements from the program to the stack, where n is the low 7 bits of
 		// opcode. If the low 7 bits are zero, then n is the next byte from the program.
 		// The high bit being 0 means that the elements are zero-extended bytes.
 		// The high bit being 1 means that the elements are sign-extended words.

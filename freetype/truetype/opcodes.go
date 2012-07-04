@@ -37,7 +37,7 @@ const (
 	opRTG       = 0x18
 	opRTHG      = 0x19
 	opSMD       = 0x1a
-	opELSE      = 0x1b
+	opELSE      = 0x1b // ELSE clause
 	opJMPR      = 0x1c
 	opSCVTCI    = 0x1d
 	opSSWCI     = 0x1e
@@ -89,7 +89,7 @@ const (
 	opMPS       = 0x4c
 	opFLIPON    = 0x4d
 	opFLIPOFF   = 0x4e
-	opDEBUG     = 0x4f
+	opDEBUG     = 0x4f // DEBUG call
 	opLT        = 0x50 // Less Than
 	opLTEQ      = 0x51 // Less Than or EQual
 	opGT        = 0x52 // Greater Than
@@ -98,8 +98,8 @@ const (
 	opNEQ       = 0x55 // Not EQual
 	opODD       = 0x56
 	opEVEN      = 0x57
-	opIF        = 0x58
-	opEIF       = 0x59
+	opIF        = 0x58 // IF test
+	opEIF       = 0x59 // End IF
 	opAND       = 0x5a // logical AND
 	opOR        = 0x5b // logical OR
 	opNOT       = 0x5c // logical NOT
@@ -272,11 +272,11 @@ const (
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x00 - 0x0f
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x10 - 0x1f
+	q, q, q, q, q, q, q, q, q, q, q, 0, q, q, q, q, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, q, q, q, q, q, q, // 0x20 - 0x2f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x30 - 0x3f
-	0, 0, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x40 - 0x4f
-	2, 2, 2, 2, 2, 2, q, q, q, q, 2, 2, 1, q, q, q, // 0x50 - 0x5f
+	0, 0, q, q, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
+	2, 2, 2, 2, 2, 2, q, q, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, q, q, q, q, q, q, q, q, // 0x60 - 0x6f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x70 - 0x7f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x80 - 0x8f

@@ -27,6 +27,16 @@ func TestBytecode(t *testing.T) {
 			"underflow",
 		},
 		{
+			"unbalanced if/else",
+			[]byte{
+				opPUSHB000, // [0]
+				0,
+				opIF,
+			},
+			nil,
+			"unbalanced",
+		},
+		{
 			"stack ops",
 			[]byte{
 				opPUSHB010, // [10, 20, 30]
@@ -100,6 +110,150 @@ func TestBytecode(t *testing.T) {
 				opNEQ,  // [1, 0]
 			},
 			[]int32{1, 0},
+			"",
+		},
+		{
+			"if true",
+			[]byte{
+				opPUSHB001, // [255, 1]
+				255,
+				1,
+				opIF,
+				opPUSHB000, // [255, 2]
+				2,
+				opEIF,
+				opPUSHB000, // [255, 2, 254]
+				254,
+			},
+			[]int32{255, 2, 254},
+			"",
+		},
+		{
+			"if false",
+			[]byte{
+				opPUSHB001, // [255, 0]
+				255,
+				0,
+				opIF,
+				opPUSHB000, // [255]
+				2,
+				opEIF,
+				opPUSHB000, // [255, 254]
+				254,
+			},
+			[]int32{255, 254},
+			"",
+		},
+		{
+			"if/else true",
+			[]byte{
+				opPUSHB000, // [1]
+				1,
+				opIF,
+				opPUSHB000, // [2]
+				2,
+				opELSE,
+				opPUSHB000, // not executed
+				3,
+				opEIF,
+			},
+			[]int32{2},
+			"",
+		},
+		{
+			"if/else false",
+			[]byte{
+				opPUSHB000, // [0]
+				0,
+				opIF,
+				opPUSHB000, // not executed
+				2,
+				opELSE,
+				opPUSHB000, // [3]
+				3,
+				opEIF,
+			},
+			[]int32{3},
+			"",
+		},
+		{
+			"if/else true if/else false",
+			// 0x58 is the opcode for opIF. The literal 0x58s below are pushed data.
+			[]byte{
+				opPUSHB010, // [255, 0, 1]
+				255,
+				0,
+				1,
+				opIF,
+				opIF,
+				opPUSHB001, // not executed
+				0x58,
+				0x58,
+				opELSE,
+				opPUSHW000, // [255, 0x5858]
+				0x58,
+				0x58,
+				opEIF,
+				opELSE,
+				opIF,
+				opNPUSHB, // not executed
+				3,
+				0x58,
+				0x58,
+				0x58,
+				opELSE,
+				opNPUSHW, // not executed
+				2,
+				0x58,
+				0x58,
+				0x58,
+				0x58,
+				opEIF,
+				opEIF,
+				opPUSHB000, // [255, 0x5858, 254]
+				254,
+			},
+			[]int32{255, 0x5858, 254},
+			"",
+		},
+		{
+			"if/else false if/else true",
+			// 0x58 is the opcode for opIF. The literal 0x58s below are pushed data.
+			[]byte{
+				opPUSHB010, // [255, 1, 0]
+				255,
+				1,
+				0,
+				opIF,
+				opIF,
+				opPUSHB001, // not executed
+				0x58,
+				0x58,
+				opELSE,
+				opPUSHW000, // not executed
+				0x58,
+				0x58,
+				opEIF,
+				opELSE,
+				opIF,
+				opNPUSHB, // [255, 0x58, 0x58, 0x58]
+				3,
+				0x58,
+				0x58,
+				0x58,
+				opELSE,
+				opNPUSHW, // not executed
+				2,
+				0x58,
+				0x58,
+				0x58,
+				0x58,
+				opEIF,
+				opEIF,
+				opPUSHB000, // [255, 0x58, 0x58, 0x58, 254]
+				254,
+			},
+			[]int32{255, 0x58, 0x58, 0x58, 254},
 			"",
 		},
 		{
