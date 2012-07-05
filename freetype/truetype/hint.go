@@ -25,7 +25,7 @@ func (h *hinter) run(program []byte) error {
 		steps, pc, top int
 		opcode         uint8
 	)
-	for int(pc) < len(program) {
+	for 0 <= pc && int(pc) < len(program) {
 		steps++
 		if steps == 100000 {
 			return errors.New("truetype: hinting: too many steps")
@@ -42,6 +42,11 @@ func (h *hinter) run(program []byte) error {
 		case opELSE:
 			opcode = 1
 			goto ifelse
+
+		case opJMPR:
+			top--
+			pc += int(h.stack[top])
+			continue
 
 		case opDUP:
 			if int(top) >= len(h.stack) {
@@ -89,36 +94,36 @@ func (h *hinter) run(program []byte) error {
 			// No-op.
 
 		case opLT:
-			h.stack[top-2] = bool2int32(h.stack[top-2] < h.stack[top-1])
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] < h.stack[top])
 
 		case opLTEQ:
-			h.stack[top-2] = bool2int32(h.stack[top-2] <= h.stack[top-1])
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] <= h.stack[top])
 
 		case opGT:
-			h.stack[top-2] = bool2int32(h.stack[top-2] > h.stack[top-1])
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] > h.stack[top])
 
 		case opGTEQ:
-			h.stack[top-2] = bool2int32(h.stack[top-2] >= h.stack[top-1])
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] >= h.stack[top])
 
 		case opEQ:
-			h.stack[top-2] = bool2int32(h.stack[top-2] == h.stack[top-1])
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] == h.stack[top])
 
 		case opNEQ:
-			h.stack[top-2] = bool2int32(h.stack[top-2] != h.stack[top-1])
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] != h.stack[top])
 
 		case opAND:
-			h.stack[top-2] = bool2int32(h.stack[top-2] != 0 && h.stack[top-1] != 0)
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] != 0 && h.stack[top] != 0)
 
 		case opOR:
-			h.stack[top-2] = bool2int32(h.stack[top-2]|h.stack[top-1] != 0)
 			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1]|h.stack[top] != 0)
 
 		case opNOT:
 			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
@@ -134,23 +139,23 @@ func (h *hinter) run(program []byte) error {
 			// No-op.
 
 		case opADD:
-			h.stack[top-2] += h.stack[top-1]
 			top--
+			h.stack[top-1] += h.stack[top]
 
 		case opSUB:
-			h.stack[top-2] -= h.stack[top-1]
 			top--
+			h.stack[top-1] -= h.stack[top]
 
 		case opDIV:
-			if h.stack[top-1] == 0 {
+			top--
+			if h.stack[top] == 0 {
 				return errors.New("truetype: hinting: division by zero")
 			}
-			h.stack[top-2] = int32((int64(h.stack[top-2]) << 6) / int64(h.stack[top-1]))
-			top--
+			h.stack[top-1] = int32((int64(h.stack[top-1]) << 6) / int64(h.stack[top]))
 
 		case opMUL:
-			h.stack[top-2] = int32((int64(h.stack[top-2]) * int64(h.stack[top-1])) >> 6)
 			top--
+			h.stack[top-1] = int32((int64(h.stack[top-1]) * int64(h.stack[top])) >> 6)
 
 		case opABS:
 			if h.stack[top-1] < 0 {
@@ -166,6 +171,20 @@ func (h *hinter) run(program []byte) error {
 		case opCEILING:
 			h.stack[top-1] += 63
 			h.stack[top-1] &^= 63
+
+		case opJROT:
+			top -= 2
+			if h.stack[top+1] != 0 {
+				pc += int(h.stack[top])
+				continue
+			}
+
+		case opJROF:
+			top -= 2
+			if h.stack[top+1] == 0 {
+				pc += int(h.stack[top])
+				continue
+			}
 
 		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011, opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
 			opcode -= opPUSHB000 - 1

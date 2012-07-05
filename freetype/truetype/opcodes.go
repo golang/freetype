@@ -38,7 +38,7 @@ const (
 	opRTHG      = 0x19
 	opSMD       = 0x1a
 	opELSE      = 0x1b // ELSE clause
-	opJMPR      = 0x1c
+	opJMPR      = 0x1c // JuMP Relative
 	opSCVTCI    = 0x1d
 	opSSWCI     = 0x1e
 	opSSW       = 0x1f
@@ -130,8 +130,8 @@ const (
 	opDELTAC3   = 0x75
 	opSROUND    = 0x76
 	opS45ROUND  = 0x77
-	opJROT      = 0x78
-	opJROF      = 0x79
+	opJROT      = 0x78 // Jump Relative On True
+	opJROF      = 0x79 // Jump Relative On False
 	opROFF      = 0x7a
 	op_0x7b     = 0x7b
 	opRUTG      = 0x7c
@@ -272,13 +272,13 @@ const (
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x00 - 0x0f
-	q, q, q, q, q, q, q, q, q, q, q, 0, q, q, q, q, // 0x10 - 0x1f
+	q, q, q, q, q, q, q, q, q, q, q, 0, 1, q, q, q, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, q, q, q, q, q, q, // 0x20 - 0x2f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x30 - 0x3f
 	0, 0, q, q, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, q, q, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, q, q, q, q, q, q, q, q, // 0x60 - 0x6f
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x70 - 0x7f
+	q, q, q, q, q, q, q, q, 2, 2, q, q, q, q, q, q, // 0x70 - 0x7f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf

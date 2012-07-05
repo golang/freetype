@@ -27,6 +27,18 @@ func TestBytecode(t *testing.T) {
 			"underflow",
 		},
 		{
+			"infinite loop",
+			[]byte{
+				opPUSHW000, // [-1]
+				0xff,
+				0xff,
+				opDUP,  // [-1, -1]
+				opJMPR, // [-1]
+			},
+			nil,
+			"too many steps",
+		},
+		{
 			"unbalanced if/else",
 			[]byte{
 				opPUSHB000, // [0]
@@ -35,6 +47,33 @@ func TestBytecode(t *testing.T) {
 			},
 			nil,
 			"unbalanced",
+		},
+		{
+			"jumps",
+			[]byte{
+				opPUSHB001, // [10, 2]
+				10,
+				2,
+				opJMPR,     // [10]
+				opDUP,      // not executed
+				opDUP,      // [10, 10]
+				opPUSHB010, // [10, 10, 20, 2, 1]
+				20,
+				2,
+				1,
+				opJROT,     // [10, 10, 20]
+				opDUP,      // not executed
+				opDUP,      // [10, 10, 20, 20]
+				opPUSHB010, // [10, 10, 20, 20, 30, 2, 1]
+				30,
+				2,
+				1,
+				opJROF, // [10, 10, 20, 20, 30]
+				opDUP,  // [10, 10, 20, 20, 30, 30]
+				opDUP,  // [10, 10, 20, 20, 30, 30, 30]
+			},
+			[]int32{10, 10, 20, 20, 30, 30, 30},
+			"",
 		},
 		{
 			"stack ops",
