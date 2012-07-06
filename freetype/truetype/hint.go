@@ -14,10 +14,16 @@ import (
 
 type hinter struct {
 	stack [800]int32
-	// TODO: add more state, as per https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
+	// The graphics state is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
+	roundPeriod, roundPhase, roundThreshold int32
 }
 
 func (h *hinter) run(program []byte) error {
+	// The default rounding policy is round to grid.
+	h.roundPeriod = 1 << 6
+	h.roundPhase = 0
+	h.roundThreshold = 1 << 5
+
 	if len(program) > 50000 {
 		return errors.New("truetype: hinting: too many instructions")
 	}
@@ -38,6 +44,16 @@ func (h *hinter) run(program []byte) error {
 			return errors.New("truetype: hinting: stack underflow")
 		}
 		switch opcode {
+
+		case opRTG:
+			h.roundPeriod = 1 << 6
+			h.roundPhase = 0
+			h.roundThreshold = 1 << 5
+
+		case opRTHG:
+			h.roundPeriod = 1 << 6
+			h.roundPhase = 1 << 5
+			h.roundThreshold = 1 << 5
 
 		case opELSE:
 			opcode = 1
@@ -81,6 +97,11 @@ func (h *hinter) run(program []byte) error {
 				copy(h.stack[top-1-x:top-1], h.stack[top-x:top])
 				top--
 			}
+
+		case opRTDG:
+			h.roundPeriod = 1 << 5
+			h.roundPhase = 0
+			h.roundThreshold = 1 << 4
 
 		case opNPUSHB:
 			opcode = 0
@@ -151,11 +172,11 @@ func (h *hinter) run(program []byte) error {
 			if h.stack[top] == 0 {
 				return errors.New("truetype: hinting: division by zero")
 			}
-			h.stack[top-1] = int32((int64(h.stack[top-1]) << 6) / int64(h.stack[top]))
+			h.stack[top-1] = div(h.stack[top-1], h.stack[top])
 
 		case opMUL:
 			top--
-			h.stack[top-1] = int32((int64(h.stack[top-1]) * int64(h.stack[top])) >> 6)
+			h.stack[top-1] = mul(h.stack[top-1], h.stack[top])
 
 		case opABS:
 			if h.stack[top-1] < 0 {
@@ -172,6 +193,41 @@ func (h *hinter) run(program []byte) error {
 			h.stack[top-1] += 63
 			h.stack[top-1] &^= 63
 
+		case opROUND00, opROUND01, opROUND10, opROUND11:
+			// The four flavors of opROUND are equivalent. See the comment below on
+			// opNROUND for the rationale.
+			h.stack[top-1] = h.round(h.stack[top-1])
+
+		case opNROUND00, opNROUND01, opNROUND10, opNROUND11:
+			// No-op. The spec says to add one of four "compensations for the engine
+			// characteristics", to cater for things like "different dot-size printers".
+			// https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#engine_compensation
+			// This code does not implement engine compensation, as we don't expect to
+			// be used to output on dot-matrix printers.
+
+		case opSROUND, opS45ROUND:
+			top--
+			switch (h.stack[top] >> 6) & 0x03 {
+			case 0:
+				h.roundPeriod = 1 << 5
+			case 1, 3:
+				h.roundPeriod = 1 << 6
+			case 2:
+				h.roundPeriod = 1 << 7
+			}
+			if opcode == opS45ROUND {
+				// The spec says to multiply by √2, but the C Freetype code says 1/√2.
+				// We go with 1/√2.
+				h.roundPeriod *= 46341
+				h.roundPeriod /= 65536
+			}
+			h.roundPhase = h.roundPeriod * ((h.stack[top] >> 4) & 0x03) / 4
+			if x := h.stack[top] & 0x0f; x != 0 {
+				h.roundThreshold = h.roundPeriod * (x - 4) / 8
+			} else {
+				h.roundThreshold = h.roundPeriod - 1
+			}
+
 		case opJROT:
 			top -= 2
 			if h.stack[top+1] != 0 {
@@ -185,6 +241,21 @@ func (h *hinter) run(program []byte) error {
 				pc += int(h.stack[top])
 				continue
 			}
+
+		case opROFF:
+			h.roundPeriod = 0
+			h.roundPhase = 0
+			h.roundThreshold = 0
+
+		case opRUTG:
+			h.roundPeriod = 1 << 6
+			h.roundPhase = 0
+			h.roundThreshold = 1<<6 - 1
+
+		case opRDTG:
+			h.roundPeriod = 1 << 6
+			h.roundPhase = 0
+			h.roundThreshold = 0
 
 		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011, opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
 			opcode -= opPUSHB000 - 1
@@ -286,6 +357,43 @@ func (h *hinter) run(program []byte) error {
 		}
 	}
 	return nil
+}
+
+// div returns x/y in 26.6 fixed point arithmetic.
+func div(x, y int32) int32 {
+	return int32((int64(x) << 6) / int64(y))
+}
+
+// mul returns x*y in 26.6 fixed point arithmetic.
+func mul(x, y int32) int32 {
+	return int32(int64(x) * int64(y) >> 6)
+}
+
+// round rounds the given number. The rounding algorithm is described at
+// https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
+func (h *hinter) round(x int32) int32 {
+	if h.roundPeriod == 0 {
+		return x
+	}
+	neg := x < 0
+	x -= h.roundPhase
+	x += h.roundThreshold
+	if x >= 0 {
+		x = (x / h.roundPeriod) * h.roundPeriod
+	} else {
+		x -= h.roundPeriod
+		x += 1
+		x = (x / h.roundPeriod) * h.roundPeriod
+	}
+	x += h.roundPhase
+	if neg {
+		if x >= 0 {
+			x = h.roundPhase - h.roundPeriod
+		}
+	} else if x < 0 {
+		x = h.roundPhase
+	}
+	return x
 }
 
 func bool2int32(b bool) int32 {

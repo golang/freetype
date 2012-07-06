@@ -345,6 +345,79 @@ func TestBytecode(t *testing.T) {
 			[]int32{64, 128},
 			"",
 		},
+		{
+			"rounding",
+			// Round 1.40625 (which is 90/64) under various rounding policies.
+			// See figure 20 of https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
+			[]byte{
+				opROFF,     // []
+				opPUSHB000, // [90]
+				90,
+				opROUND00,  // [90]
+				opRTG,      // [90]
+				opPUSHB000, // [90, 90]
+				90,
+				opROUND00,  // [90, 64]
+				opRTHG,     // [90, 64]
+				opPUSHB000, // [90, 64, 90]
+				90,
+				opROUND00,  // [90, 64, 96]
+				opRDTG,     // [90, 64, 96]
+				opPUSHB000, // [90, 64, 96, 90]
+				90,
+				opROUND00,  // [90, 64, 96, 64]
+				opRUTG,     // [90, 64, 96, 64]
+				opPUSHB000, // [90, 64, 96, 64, 90]
+				90,
+				opROUND00,  // [90, 64, 96, 64, 128]
+				opRTDG,     // [90, 64, 96, 64, 128]
+				opPUSHB000, // [90, 64, 96, 64, 128, 90]
+				90,
+				opROUND00, // [90, 64, 96, 64, 128, 96]
+			},
+			[]int32{90, 64, 96, 64, 128, 96},
+			"",
+		},
+		{
+			"super-rounding",
+			// See figure 20 of https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
+			// and the sign preservation steps of the "Order of rounding operations" section.
+			[]byte{
+				opPUSHB000, // [0x58]
+				0x58,
+				opSROUND,   // []
+				opPUSHW000, // [-81]
+				0xff,
+				0xaf,
+				opROUND00,  // [-112]
+				opPUSHW000, // [-112, -80]
+				0xff,
+				0xb0,
+				opROUND00,  // [-112, -48]
+				opPUSHW000, // [-112, -48, -17]
+				0xff,
+				0xef,
+				opROUND00,  // [-112, -48, -48]
+				opPUSHW000, // [-112, -48, -48, -16]
+				0xff,
+				0xf0,
+				opROUND00,  // [-112, -48, -48, -48]
+				opPUSHB000, // [-112, -48, -48, -48, 0]
+				0,
+				opROUND00,  // [-112, -48, -48, -48, 16]
+				opPUSHB000, // [-112, -48, -48, -48, 16, 16]
+				16,
+				opROUND00,  // [-112, -48, -48, -48, 16, 16]
+				opPUSHB000, // [-112, -48, -48, -48, 16, 16, 47]
+				47,
+				opROUND00,  // [-112, -48, -48, -48, 16, 16, 16]
+				opPUSHB000, // [-112, -48, -48, -48, 16, 16, 16, 48]
+				48,
+				opROUND00, // [-112, -48, -48, -48, 16, 16, 16, 80]
+			},
+			[]int32{-112, -48, -48, -48, 16, 16, 16, 80},
+			"",
+		},
 	}
 
 	for _, tc := range testCases {

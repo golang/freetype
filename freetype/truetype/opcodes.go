@@ -34,8 +34,8 @@ const (
 	opSZP2      = 0x15
 	opSZPS      = 0x16
 	opSLOOP     = 0x17
-	opRTG       = 0x18
-	opRTHG      = 0x19
+	opRTG       = 0x18 // Round To Grid
+	opRTHG      = 0x19 // Round To Half Grid
 	opSMD       = 0x1a
 	opELSE      = 0x1b // ELSE clause
 	opJMPR      = 0x1c // JuMP Relative
@@ -71,7 +71,7 @@ const (
 	opMSIRP0    = 0x3a
 	opMSIRP1    = 0x3b
 	opALIGNRP   = 0x3c
-	opRTGD      = 0x3d
+	opRTDG      = 0x3d // Round To Double Grid
 	opMIAP0     = 0x3e
 	opMIAP1     = 0x3f
 	opNPUSHB    = 0x40 // PUSH N Bytes
@@ -114,28 +114,28 @@ const (
 	opNEG       = 0x65 // NEGate
 	opFLOOR     = 0x66 // FLOOR
 	opCEILING   = 0x67 // CEILING
-	opROUND00   = 0x68
-	opROUND01   = 0x69
-	opROUND10   = 0x6a
-	opROUND11   = 0x6b
-	opNROUND00  = 0x6c
-	opNROUND01  = 0x6d
-	opNROUND10  = 0x6e
-	opNROUND11  = 0x6f
+	opROUND00   = 0x68 // ROUND value
+	opROUND01   = 0x69 // .
+	opROUND10   = 0x6a // .
+	opROUND11   = 0x6b // .
+	opNROUND00  = 0x6c // No ROUNDing of value
+	opNROUND01  = 0x6d // .
+	opNROUND10  = 0x6e // .
+	opNROUND11  = 0x6f // .
 	opWCVTF     = 0x70
 	opDELTAP2   = 0x71
 	opDELTAP3   = 0x72
 	opDELTAC1   = 0x73
 	opDELTAC2   = 0x74
 	opDELTAC3   = 0x75
-	opSROUND    = 0x76
-	opS45ROUND  = 0x77
+	opSROUND    = 0x76 // Super ROUND
+	opS45ROUND  = 0x77 // Super ROUND 45 degrees
 	opJROT      = 0x78 // Jump Relative On True
 	opJROF      = 0x79 // Jump Relative On False
-	opROFF      = 0x7a
+	opROFF      = 0x7a // Round OFF
 	op_0x7b     = 0x7b
-	opRUTG      = 0x7c
-	opRDTG      = 0x7d
+	opRUTG      = 0x7c // Round Up To Grid
+	opRDTG      = 0x7d // Round Down To Grid
 	opSANGW     = 0x7e
 	opAA        = 0x7f
 	opFLIPPT    = 0x80
@@ -272,13 +272,13 @@ const (
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x00 - 0x0f
-	q, q, q, q, q, q, q, q, q, q, q, 0, 1, q, q, q, // 0x10 - 0x1f
+	q, q, q, q, q, q, q, q, 0, 0, q, 0, 1, q, q, q, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, q, q, q, q, q, q, // 0x20 - 0x2f
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x30 - 0x3f
+	q, q, q, q, q, q, q, q, q, q, q, q, q, 0, q, q, // 0x30 - 0x3f
 	0, 0, q, q, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, q, q, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
-	2, 2, 2, 2, 1, 1, 1, 1, q, q, q, q, q, q, q, q, // 0x60 - 0x6f
-	q, q, q, q, q, q, q, q, 2, 2, q, q, q, q, q, q, // 0x70 - 0x7f
+	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
+	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, q, q, // 0x70 - 0x7f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
