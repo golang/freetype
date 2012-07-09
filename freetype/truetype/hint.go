@@ -13,12 +13,34 @@ import (
 )
 
 type hinter struct {
+	// TODO: variable sized stack and store slices based on the maxp section?
+	// Should the arrays for the stack and store be combined? For now, fixed
+	// maximum sizes seem to work in practice.
 	stack [800]int32
-	// The graphics state is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
-	roundPeriod, roundPhase, roundThreshold int32
+	store [128]int32
+
+	// The fields below constitue the graphics state, which is described at
+	// https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
+
+	// Projection vector, freedom vector and dual projection vector.
+	pv, fv, dv [2]f2dot14
+	// Minimum distance.
+	minDist f26dot6
+	// Loop count.
+	loop int32
+	// Rounding policy.
+	roundPeriod, roundPhase, roundThreshold f26dot6
 }
 
 func (h *hinter) run(program []byte) error {
+	// The default vectors are along the X axis.
+	h.pv = [2]f2dot14{0x4000, 0}
+	h.fv = [2]f2dot14{0x4000, 0}
+	h.dv = [2]f2dot14{0x4000, 0}
+	// The default minimum distance is 1.
+	h.minDist = 1 << 6
+	// The default loop count is 1.
+	h.loop = 1
 	// The default rounding policy is round to grid.
 	h.roundPeriod = 1 << 6
 	h.roundPhase = 0
@@ -31,7 +53,7 @@ func (h *hinter) run(program []byte) error {
 		steps, pc, top int
 		opcode         uint8
 	)
-	for 0 <= pc && int(pc) < len(program) {
+	for 0 <= pc && pc < len(program) {
 		steps++
 		if steps == 100000 {
 			return errors.New("truetype: hinting: too many steps")
@@ -45,6 +67,69 @@ func (h *hinter) run(program []byte) error {
 		}
 		switch opcode {
 
+		case opSVTCA0:
+			h.pv = [2]f2dot14{0, 0x4000}
+			h.fv = [2]f2dot14{0, 0x4000}
+			// TODO: h.dv = h.pv ??
+
+		case opSVTCA1:
+			h.pv = [2]f2dot14{0x4000, 0}
+			h.fv = [2]f2dot14{0x4000, 0}
+			// TODO: h.dv = h.pv ??
+
+		case opSPVTCA0:
+			h.pv = [2]f2dot14{0, 0x4000}
+			// TODO: h.dv = h.pv ??
+
+		case opSPVTCA1:
+			h.pv = [2]f2dot14{0x4000, 0}
+			// TODO: h.dv = h.pv ??
+
+		case opSFVTCA0:
+			h.fv = [2]f2dot14{0, 0x4000}
+
+		case opSFVTCA1:
+			h.fv = [2]f2dot14{0x4000, 0}
+
+		case opSPVFS:
+			top -= 2
+			h.pv[0] = f2dot14(h.stack[top+0])
+			h.pv[1] = f2dot14(h.stack[top+1])
+			// TODO: normalize h.pv ??
+			// TODO: h.dv = h.pv ??
+
+		case opSFVFS:
+			top -= 2
+			h.fv[0] = f2dot14(h.stack[top+0])
+			h.fv[1] = f2dot14(h.stack[top+1])
+			// TODO: normalize h.fv ??
+
+		case opGPV:
+			if top+1 >= len(h.stack) {
+				return errors.New("truetype: hinting: stack overflow")
+			}
+			h.stack[top+0] = int32(h.pv[0])
+			h.stack[top+1] = int32(h.pv[1])
+			top += 2
+
+		case opGFV:
+			if top+1 >= len(h.stack) {
+				return errors.New("truetype: hinting: stack overflow")
+			}
+			h.stack[top+0] = int32(h.fv[0])
+			h.stack[top+1] = int32(h.fv[1])
+			top += 2
+
+		case opSFVTPV:
+			h.fv = h.pv
+
+		case opSLOOP:
+			top--
+			if h.stack[top] <= 0 {
+				return errors.New("truetype: hinting: invalid data")
+			}
+			h.loop = h.stack[top]
+
 		case opRTG:
 			h.roundPeriod = 1 << 6
 			h.roundPhase = 0
@@ -54,6 +139,10 @@ func (h *hinter) run(program []byte) error {
 			h.roundPeriod = 1 << 6
 			h.roundPhase = 1 << 5
 			h.roundThreshold = 1 << 5
+
+		case opSMD:
+			top--
+			h.minDist = f26dot6(h.stack[top])
 
 		case opELSE:
 			opcode = 1
@@ -65,7 +154,7 @@ func (h *hinter) run(program []byte) error {
 			continue
 
 		case opDUP:
-			if int(top) >= len(h.stack) {
+			if top >= len(h.stack) {
 				return errors.New("truetype: hinting: stack overflow")
 			}
 			h.stack[top] = h.stack[top-1]
@@ -81,7 +170,7 @@ func (h *hinter) run(program []byte) error {
 			h.stack[top-1], h.stack[top-2] = h.stack[top-2], h.stack[top-1]
 
 		case opDEPTH:
-			if int(top) >= len(h.stack) {
+			if top >= len(h.stack) {
 				return errors.New("truetype: hinting: stack overflow")
 			}
 			h.stack[top] = int32(top)
@@ -110,6 +199,21 @@ func (h *hinter) run(program []byte) error {
 		case opNPUSHW:
 			opcode = 0x80
 			goto push
+
+		case opWS:
+			top -= 2
+			i := int(h.stack[top])
+			if i < 0 || len(h.store) <= i {
+				return errors.New("truetype: hinting: invalid data")
+			}
+			h.store[i] = h.stack[top+1]
+
+		case opRS:
+			i := int(h.stack[top-1])
+			if i < 0 || len(h.store) <= i {
+				return errors.New("truetype: hinting: invalid data")
+			}
+			h.stack[top-1] = h.store[i]
 
 		case opDEBUG:
 			// No-op.
@@ -172,11 +276,11 @@ func (h *hinter) run(program []byte) error {
 			if h.stack[top] == 0 {
 				return errors.New("truetype: hinting: division by zero")
 			}
-			h.stack[top-1] = div(h.stack[top-1], h.stack[top])
+			h.stack[top-1] = int32(f26dot6(h.stack[top-1]).div(f26dot6(h.stack[top])))
 
 		case opMUL:
 			top--
-			h.stack[top-1] = mul(h.stack[top-1], h.stack[top])
+			h.stack[top-1] = int32(f26dot6(h.stack[top-1]).mul(f26dot6(h.stack[top])))
 
 		case opABS:
 			if h.stack[top-1] < 0 {
@@ -196,7 +300,7 @@ func (h *hinter) run(program []byte) error {
 		case opROUND00, opROUND01, opROUND10, opROUND11:
 			// The four flavors of opROUND are equivalent. See the comment below on
 			// opNROUND for the rationale.
-			h.stack[top-1] = h.round(h.stack[top-1])
+			h.stack[top-1] = int32(h.round(f26dot6(h.stack[top-1])))
 
 		case opNROUND00, opNROUND01, opNROUND10, opNROUND11:
 			// No-op. The spec says to add one of four "compensations for the engine
@@ -221,9 +325,9 @@ func (h *hinter) run(program []byte) error {
 				h.roundPeriod *= 46341
 				h.roundPeriod /= 65536
 			}
-			h.roundPhase = h.roundPeriod * ((h.stack[top] >> 4) & 0x03) / 4
+			h.roundPhase = h.roundPeriod * f26dot6((h.stack[top]>>4)&0x03) / 4
 			if x := h.stack[top] & 0x0f; x != 0 {
-				h.roundThreshold = h.roundPeriod * (x - 4) / 8
+				h.roundThreshold = h.roundPeriod * f26dot6(x-4) / 8
 			} else {
 				h.roundThreshold = h.roundPeriod - 1
 			}
@@ -256,6 +360,29 @@ func (h *hinter) run(program []byte) error {
 			h.roundPeriod = 1 << 6
 			h.roundPhase = 0
 			h.roundThreshold = 0
+
+		case opSANGW, opAA:
+			// These ops are "anachronistic" and no longer used.
+			top--
+
+		case opIDEF:
+			// IDEF is for ancient versions of the bytecode interpreter, and is no longer used.
+			return errors.New("truetype: hinting: unsupported IDEF instruction")
+
+		case opROLL:
+			h.stack[top-1], h.stack[top-3], h.stack[top-2] = h.stack[top-3], h.stack[top-2], h.stack[top-1]
+
+		case opMAX:
+			top--
+			if h.stack[top-1] < h.stack[top] {
+				h.stack[top-1] = h.stack[top]
+			}
+
+		case opMIN:
+			top--
+			if h.stack[top-1] > h.stack[top] {
+				h.stack[top-1] = h.stack[top]
+			}
 
 		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011, opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
 			opcode -= opPUSHB000 - 1
@@ -332,7 +459,7 @@ func (h *hinter) run(program []byte) error {
 			}
 			if opcode == 0 {
 				pc++
-				if int(pc) >= len(program) {
+				if pc >= len(program) {
 					return errors.New("truetype: hinting: insufficient data")
 				}
 				opcode = program[pc]
@@ -359,19 +486,25 @@ func (h *hinter) run(program []byte) error {
 	return nil
 }
 
+// f2dot14 is a 2.14 fixed point number.
+type f2dot14 int16
+
+// f26dot6 is a 26.6 fixed point number.
+type f26dot6 int32
+
 // div returns x/y in 26.6 fixed point arithmetic.
-func div(x, y int32) int32 {
-	return int32((int64(x) << 6) / int64(y))
+func (x f26dot6) div(y f26dot6) f26dot6 {
+	return f26dot6((int64(x) << 6) / int64(y))
 }
 
 // mul returns x*y in 26.6 fixed point arithmetic.
-func mul(x, y int32) int32 {
-	return int32(int64(x) * int64(y) >> 6)
+func (x f26dot6) mul(y f26dot6) f26dot6 {
+	return f26dot6(int64(x) * int64(y) >> 6)
 }
 
 // round rounds the given number. The rounding algorithm is described at
 // https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
-func (h *hinter) round(x int32) int32 {
+func (h *hinter) round(x f26dot6) f26dot6 {
 	if h.roundPeriod == 0 {
 		return x
 	}

@@ -10,21 +10,21 @@ package truetype
 // TODO: the opXXX constants without end-of-line comments are not yet implemented.
 
 const (
-	opSVTCA0    = 0x00
-	opSVTCA1    = 0x01
-	opSPVTCA0   = 0x02
-	opSPVTCA1   = 0x03
-	opSFVTCA0   = 0x04
-	opSFVTCA1   = 0x05
+	opSVTCA0    = 0x00 // Set freedom and projection Vectors To Coordinate Axis
+	opSVTCA1    = 0x01 // .
+	opSPVTCA0   = 0x02 // Set Projection Vector To Coordinate Axis
+	opSPVTCA1   = 0x03 // .
+	opSFVTCA0   = 0x04 // Set Freedom Vector to Coordinate Axis
+	opSFVTCA1   = 0x05 // .
 	opSPVTL0    = 0x06
 	opSPVTL1    = 0x07
 	opSFVTL0    = 0x08
 	opSFVTL1    = 0x09
-	opSFVFS     = 0x0b
-	opSPVFS     = 0x0a
-	opGPV       = 0x0c
-	opGFV       = 0x0d
-	opSFVTPV    = 0x0e
+	opSPVFS     = 0x0a // Set Projection Vector From Stack
+	opSFVFS     = 0x0b // Set Freedom Vector From Stack
+	opGPV       = 0x0c // Get Projection Vector
+	opGFV       = 0x0d // Get Freedom Vector
+	opSFVTPV    = 0x0e // Set Freedom Vector To Projection Vector
 	opISECT     = 0x0f
 	opSRP0      = 0x10
 	opSRP1      = 0x11
@@ -33,10 +33,10 @@ const (
 	opSZP1      = 0x14
 	opSZP2      = 0x15
 	opSZPS      = 0x16
-	opSLOOP     = 0x17
+	opSLOOP     = 0x17 // Set LOOP variable
 	opRTG       = 0x18 // Round To Grid
 	opRTHG      = 0x19 // Round To Half Grid
-	opSMD       = 0x1a
+	opSMD       = 0x1a // Set Minimum Distance
 	opELSE      = 0x1b // ELSE clause
 	opJMPR      = 0x1c // JuMP Relative
 	opSCVTCI    = 0x1d
@@ -76,8 +76,8 @@ const (
 	opMIAP1     = 0x3f
 	opNPUSHB    = 0x40 // PUSH N Bytes
 	opNPUSHW    = 0x41 // PUSH N Words
-	opWS        = 0x42
-	opRS        = 0x43
+	opWS        = 0x42 // Write Store
+	opRS        = 0x43 // Read Store
 	opWCVTP     = 0x44
 	opRCVT      = 0x45
 	opGC0       = 0x46
@@ -136,8 +136,8 @@ const (
 	op_0x7b     = 0x7b
 	opRUTG      = 0x7c // Round Up To Grid
 	opRDTG      = 0x7d // Round Down To Grid
-	opSANGW     = 0x7e
-	opAA        = 0x7f
+	opSANGW     = 0x7e // Set ANGle Weight
+	opAA        = 0x7f // Adjust Angle
 	opFLIPPT    = 0x80
 	opFLIPRGON  = 0x81
 	opFLIPRGOFF = 0x82
@@ -147,10 +147,10 @@ const (
 	opSDPVTL0   = 0x86
 	opSDPVTL1   = 0x87
 	opGETINFO   = 0x88
-	opIFDEF     = 0x89
-	opROLL      = 0x8a
-	opMAX       = 0x8b
-	opMIN       = 0x8c
+	opIDEF      = 0x89 // Instruction DEFinition
+	opROLL      = 0x8a // ROLL the top three stack elements
+	opMAX       = 0x8b // MAXimum of top two stack elements
+	opMIN       = 0x8c // MINimum of top two stack elements
 	opSCANTYPE  = 0x8d
 	opINSTCTRL  = 0x8e
 	op_0x8f     = 0x8f
@@ -271,15 +271,15 @@ const (
 // popCount is the number of stack elements that each opcode pops.
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x00 - 0x0f
-	q, q, q, q, q, q, q, q, 0, 0, q, 0, 1, q, q, q, // 0x10 - 0x1f
+	0, 0, 0, 0, 0, 0, q, q, q, q, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
+	q, q, q, q, q, q, q, 1, 0, 0, 1, 0, 1, q, q, q, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, q, q, q, q, q, q, // 0x20 - 0x2f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, 0, q, q, // 0x30 - 0x3f
-	0, 0, q, q, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
+	0, 0, 2, 1, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, q, q, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
-	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, q, q, // 0x70 - 0x7f
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x80 - 0x8f
+	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
+	q, q, q, q, q, q, q, q, q, 1, 3, 2, 2, q, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf

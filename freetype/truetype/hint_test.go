@@ -49,6 +49,25 @@ func TestBytecode(t *testing.T) {
 			"unbalanced",
 		},
 		{
+			"vector set/gets",
+			[]byte{
+				opSVTCA1,   // []
+				opGPV,      // [ 0x4000, 0 ]
+				opSVTCA0,   // [ 0x4000, 0 ]
+				opGFV,      // [ 0x4000, 0, 0, 0x4000 ]
+				opNEG,      // [ 0x4000, 0, 0, -0x4000 ]
+				opSPVFS,    // [ 0x4000, 0 ]
+				opSFVTPV,   // [ 0x4000, 0 ]
+				opPUSHB000, // [ 0x4000, 0, 1 ]
+				1,
+				opGFV,      // [ 0x4000, 0, 1, 0, -0x4000 ]
+				opPUSHB000, // [ 0x4000, 0, 1, 0, -0x4000, 2 ]
+				2,
+			},
+			[]int32{0x4000, 0, 1, 0, -0x4000, 2},
+			"",
+		},
+		{
 			"jumps",
 			[]byte{
 				opPUSHB001, // [10, 2]
@@ -124,6 +143,23 @@ func TestBytecode(t *testing.T) {
 				9,
 			},
 			[]int32{255, -2, 253, 1, 2, 0x0405, 0x0607, 0x0809},
+			"",
+		},
+		{
+			"store ops",
+			[]byte{
+				opPUSHB011, // [1, 22, 3, 44]
+				1,
+				22,
+				3,
+				44,
+				opWS,       // [1, 22]
+				opWS,       // []
+				opPUSHB000, // [3]
+				3,
+				opRS, // [44]
+			},
+			[]int32{44},
 			"",
 		},
 		{
@@ -416,6 +452,37 @@ func TestBytecode(t *testing.T) {
 				opROUND00, // [-112, -48, -48, -48, 16, 16, 16, 80]
 			},
 			[]int32{-112, -48, -48, -48, 16, 16, 16, 80},
+			"",
+		},
+		{
+			"roll",
+			[]byte{
+				opPUSHB010, // [1, 2, 3]
+				1,
+				2,
+				3,
+				opROLL, // [2, 3, 1]
+			},
+			[]int32{2, 3, 1},
+			"",
+		},
+		{
+			"max/min",
+			[]byte{
+				opPUSHW001, // [-2, -3]
+				0xff,
+				0xfe,
+				0xff,
+				0xfd,
+				opMAX,      // [-2]
+				opPUSHW001, // [-2, -4, -5]
+				0xff,
+				0xfc,
+				0xff,
+				0xfb,
+				opMIN, // [-2, -5]
+			},
+			[]int32{-2, -5},
 			"",
 		},
 	}
