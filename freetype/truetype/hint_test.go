@@ -489,6 +489,10 @@ func TestBytecode(t *testing.T) {
 
 	for _, tc := range testCases {
 		h := &hinter{}
+		h.init(&Font{
+			maxStorage:       32,
+			maxStackElements: 100,
+		})
 		err, errStr := h.run(tc.prog), ""
 		if err != nil {
 			errStr = err.Error()

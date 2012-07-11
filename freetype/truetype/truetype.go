@@ -98,6 +98,8 @@ type Font struct {
 	nGlyph, nHMetric, nKern int
 	unitsPerEm              int
 	bounds                  Bounds
+	// Values from the maxp section.
+	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
 }
 
 func (f *Font) parseCmap() error {
@@ -254,6 +256,10 @@ func (f *Font) parseMaxp() error {
 		return FormatError(fmt.Sprintf("bad maxp length: %d", len(f.maxp)))
 	}
 	f.nGlyph = int(u16(f.maxp, 4))
+	f.maxTwilightPoints = u16(f.maxp, 16)
+	f.maxStorage = u16(f.maxp, 18)
+	f.maxFunctionDefs = u16(f.maxp, 20)
+	f.maxStackElements = u16(f.maxp, 24)
 	return nil
 }
 

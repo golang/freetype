@@ -13,11 +13,7 @@ import (
 )
 
 type hinter struct {
-	// TODO: variable sized stack and store slices based on the maxp section?
-	// Should the arrays for the stack and store be combined? For now, fixed
-	// maximum sizes seem to work in practice.
-	stack [800]int32
-	store [128]int32
+	stack, store []int32
 
 	// The fields below constitue the graphics state, which is described at
 	// https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
@@ -30,6 +26,19 @@ type hinter struct {
 	loop int32
 	// Rounding policy.
 	roundPeriod, roundPhase, roundThreshold f26dot6
+}
+
+func (h *hinter) init(f *Font) {
+	if x := int(f.maxStackElements); x > len(h.stack) {
+		x += 255
+		x &^= 255
+		h.stack = make([]int32, x)
+	}
+	if x := int(f.maxStorage); x > len(h.store) {
+		x += 15
+		x &^= 15
+		h.store = make([]int32, x)
+	}
 }
 
 func (h *hinter) run(program []byte) error {
