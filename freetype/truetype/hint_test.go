@@ -188,6 +188,26 @@ func TestBytecode(t *testing.T) {
 			"",
 		},
 		{
+			"odd/even",
+			// Calculate odd(2+31/64), odd(2+32/64), even(2), even(1).
+			[]byte{
+				opPUSHB000, // [159]
+				159,
+				opODD,      // [0]
+				opPUSHB000, // [0, 160]
+				160,
+				opODD,      // [0, 1]
+				opPUSHB000, // [0, 1, 128]
+				128,
+				opEVEN,     // [0, 1, 1]
+				opPUSHB000, // [0, 1, 1, 64]
+				64,
+				opEVEN, // [0, 1, 1, 0]
+			},
+			[]int32{0, 1, 1, 0},
+			"",
+		},
+		{
 			"if true",
 			[]byte{
 				opPUSHB001, // [255, 1]

@@ -96,8 +96,8 @@ const (
 	opGTEQ      = 0x53 // Greater Than or EQual
 	opEQ        = 0x54 // EQual
 	opNEQ       = 0x55 // Not EQual
-	opODD       = 0x56
-	opEVEN      = 0x57
+	opODD       = 0x56 // ODD
+	opEVEN      = 0x57 // EVEN
 	opIF        = 0x58 // IF test
 	opEIF       = 0x59 // End IF
 	opAND       = 0x5a // logical AND
@@ -276,7 +276,7 @@ var popCount = [256]uint8{
 	1, 1, 0, 2, 0, 1, 1, q, q, q, q, q, q, q, q, q, // 0x20 - 0x2f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, 0, q, q, // 0x30 - 0x3f
 	0, 0, 2, 1, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
-	2, 2, 2, 2, 2, 2, q, q, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
+	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
 	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
 	q, q, q, q, q, q, q, q, q, 1, 3, 2, 2, q, q, q, // 0x80 - 0x8f

@@ -251,16 +251,9 @@ func (h *hinter) run(program []byte) error {
 			top--
 			h.stack[top-1] = bool2int32(h.stack[top-1] != h.stack[top])
 
-		case opAND:
-			top--
-			h.stack[top-1] = bool2int32(h.stack[top-1] != 0 && h.stack[top] != 0)
-
-		case opOR:
-			top--
-			h.stack[top-1] = bool2int32(h.stack[top-1]|h.stack[top] != 0)
-
-		case opNOT:
-			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
+		case opODD, opEVEN:
+			i := h.round(f26dot6(h.stack[top-1])) >> 6
+			h.stack[top-1] = int32(i&1) ^ int32(opcode-opODD)
 
 		case opIF:
 			top--
@@ -271,6 +264,17 @@ func (h *hinter) run(program []byte) error {
 
 		case opEIF:
 			// No-op.
+
+		case opAND:
+			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1] != 0 && h.stack[top] != 0)
+
+		case opOR:
+			top--
+			h.stack[top-1] = bool2int32(h.stack[top-1]|h.stack[top] != 0)
+
+		case opNOT:
+			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
 
 		case opADD:
 			top--
