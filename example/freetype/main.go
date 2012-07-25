@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	dpi      = flag.Int("dpi", 72, "screen resolution in Dots Per Inch")
+	dpi      = flag.Float64("dpi", 72, "screen resolution in Dots Per Inch")
 	fontfile = flag.String("fontfile", "../../luxi-fonts/luxisr.ttf", "filename of the ttf font")
 	size     = flag.Float64("size", 12, "font size in points")
 	spacing  = flag.Float64("spacing", 1.5, "line spacing (e.g. 2 means double spaced)")
@@ -104,7 +104,7 @@ func main() {
 	}
 
 	// Draw the text.
-	pt := freetype.Pt(10, 10+c.FUnitToPixelRU(font.UnitsPerEm()))
+	pt := freetype.Pt(10, 10+int(c.PointToFix32(*size)>>8))
 	for _, s := range text {
 		_, err = c.DrawString(s, pt)
 		if err != nil {

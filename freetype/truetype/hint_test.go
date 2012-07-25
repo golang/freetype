@@ -508,7 +508,7 @@ func TestBytecode(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		h := &hinter{}
+		h := &Hinter{}
 		h.init(&Font{
 			maxStorage:       32,
 			maxStackElements: 100,

@@ -63,40 +63,12 @@ type Context struct {
 	// dst and src are the destination and source images for drawing.
 	dst draw.Image
 	src image.Image
-	// fontSize, dpi and upe are used to calculate scale.
-	// scale is a multiplication factor to convert 256 FUnits (which is truetype's
-	// native unit) to 24.8 fixed point units (which is the rasterizer's native unit).
-	// At the default values of 72 DPI and 2048 units-per-em, one em of a 12 point
-	// font is 12 pixels, which is 3072 fixed point units, and scale is
-	// (pointSize * resolution * 256 * 256) / (unitsPerEm * 72), or
-	// (12 * 72 * 256 * 256) / (2048 * 72),
-	// which equals 384 fixed point units per 256 FUnits.
-	// To check this, 1 em * 2048 FUnits per em * 384 fixed point units per 256 FUnits
-	// equals 3072 fixed point units.
-	fontSize float64
-	dpi      int
-	upe      int
-	scale    int
+	// fontSize and dpi are used to calculate scale. scale is the number of
+	// 26.6 fixed point units in 1 em.
+	fontSize, dpi float64
+	scale         int32
 	// cache is the glyph cache.
 	cache [nGlyphs * nXFractions * nYFractions]cacheEntry
-}
-
-// FUnitToFix32 converts the given number of FUnits into fixed point units,
-// rounding to nearest.
-func (c *Context) FUnitToFix32(x int) raster.Fix32 {
-	return raster.Fix32((x*c.scale + 128) >> 8)
-}
-
-// FUnitToPixelRD converts the given number of FUnits into pixel units,
-// rounding down.
-func (c *Context) FUnitToPixelRD(x int) int {
-	return x * c.scale >> 16
-}
-
-// FUnitToPixelRU converts the given number of FUnits into pixel units,
-// rounding up.
-func (c *Context) FUnitToPixelRU(x int) int {
-	return (x*c.scale + 0xffff) >> 16
 }
 
 // PointToFix32 converts the given number of points (as in ``a 12 point font'')
@@ -114,15 +86,15 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	// start is the same thing measured in fixed point units and positive Y
 	// going downwards, and offset by (dx, dy)
 	start := raster.Point{
-		X: dx + c.FUnitToFix32(int(ps[0].X)),
-		Y: dy + c.FUnitToFix32(-int(ps[0].Y)),
+		X: dx + raster.Fix32(ps[0].X<<2),
+		Y: dy - raster.Fix32(ps[0].Y<<2),
 	}
 	c.r.Start(start)
 	q0, on0 := start, true
 	for _, p := range ps[1:] {
 		q := raster.Point{
-			X: dx + c.FUnitToFix32(int(p.X)),
-			Y: dy + c.FUnitToFix32(-int(p.Y)),
+			X: dx + raster.Fix32(p.X<<2),
+			Y: dy - raster.Fix32(p.Y<<2),
 		}
 		on := p.Flags&0x01 != 0
 		if on {
@@ -156,14 +128,14 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 // given glyph at the given sub-pixel offsets.
 // The 24.8 fixed point arguments fx and fy must be in the range [0, 1).
 func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.Alpha, image.Point, error) {
-	if err := c.glyphBuf.Load(c.font, glyph); err != nil {
+	if err := c.glyphBuf.Load(c.font, c.scale, glyph, nil); err != nil {
 		return nil, image.ZP, err
 	}
 	// Calculate the integer-pixel bounds for the glyph.
-	xmin := int(fx+c.FUnitToFix32(+int(c.glyphBuf.B.XMin))) >> 8
-	ymin := int(fy+c.FUnitToFix32(-int(c.glyphBuf.B.YMax))) >> 8
-	xmax := int(fx+c.FUnitToFix32(+int(c.glyphBuf.B.XMax))+0xff) >> 8
-	ymax := int(fy+c.FUnitToFix32(-int(c.glyphBuf.B.YMin))+0xff) >> 8
+	xmin := int(fx+raster.Fix32(c.glyphBuf.B.XMin<<2)) >> 8
+	ymin := int(fy-raster.Fix32(c.glyphBuf.B.YMax<<2)) >> 8
+	xmax := int(fx+raster.Fix32(c.glyphBuf.B.XMax<<2)+0xff) >> 8
+	ymax := int(fy-raster.Fix32(c.glyphBuf.B.YMin<<2)+0xff) >> 8
 	if xmin > xmax || ymin > ymax {
 		return nil, image.ZP, errors.New("freetype: negative sized glyph")
 	}
@@ -226,13 +198,13 @@ func (c *Context) DrawString(s string, p raster.Point) (raster.Point, error) {
 	for _, rune := range s {
 		index := c.font.Index(rune)
 		if hasPrev {
-			p.X += c.FUnitToFix32(int(c.font.Kerning(prev, index)))
+			p.X += raster.Fix32(c.font.Kerning(c.scale, prev, index)) << 2
 		}
 		mask, offset, err := c.glyph(index, p)
 		if err != nil {
 			return raster.Point{}, err
 		}
-		p.X += c.FUnitToFix32(int(c.font.HMetric(index).AdvanceWidth))
+		p.X += raster.Fix32(c.font.HMetric(c.scale, index).AdvanceWidth) << 2
 		glyphRect := mask.Bounds().Add(offset)
 		dr := c.clip.Intersect(glyphRect)
 		if !dr.Empty() {
@@ -247,16 +219,16 @@ func (c *Context) DrawString(s string, p raster.Point) (raster.Point, error) {
 // recalc recalculates scale and bounds values from the font size, screen
 // resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
-	c.scale = int((c.fontSize * float64(c.dpi) * 256 * 256) / (float64(c.upe) * 72))
+	c.scale = int32(c.fontSize * c.dpi * (64.0 / 72.0))
 	if c.font == nil {
 		c.r.SetBounds(0, 0)
 	} else {
 		// Set the rasterizer's bounds to be big enough to handle the largest glyph.
-		b := c.font.Bounds()
-		xmin := c.FUnitToPixelRD(+int(b.XMin))
-		ymin := c.FUnitToPixelRD(-int(b.YMax))
-		xmax := c.FUnitToPixelRU(+int(b.XMax))
-		ymax := c.FUnitToPixelRU(-int(b.YMin))
+		b := c.font.Bounds(c.scale)
+		xmin := +int(b.XMin) >> 6
+		ymin := -int(b.YMax) >> 6
+		xmax := +int(b.XMax+63) >> 6
+		ymax := -int(b.YMin-63) >> 6
 		c.r.SetBounds(xmax-xmin, ymax-ymin)
 	}
 	for i := range c.cache {
@@ -265,7 +237,7 @@ func (c *Context) recalc() {
 }
 
 // SetDPI sets the screen resolution in dots per inch.
-func (c *Context) SetDPI(dpi int) {
+func (c *Context) SetDPI(dpi float64) {
 	if c.dpi == dpi {
 		return
 	}
@@ -279,10 +251,6 @@ func (c *Context) SetFont(font *truetype.Font) {
 		return
 	}
 	c.font = font
-	c.upe = font.UnitsPerEm()
-	if c.upe <= 0 {
-		c.upe = 1
-	}
 	c.recalc()
 }
 
@@ -320,7 +288,6 @@ func NewContext() *Context {
 		glyphBuf: truetype.NewGlyphBuf(),
 		fontSize: 12,
 		dpi:      72,
-		upe:      2048,
-		scale:    (12 * 72 * 256 * 256) / (2048 * 72),
+		scale:    12 << 6,
 	}
 }

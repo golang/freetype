@@ -8,10 +8,10 @@ package truetype
 // A Point is a co-ordinate pair plus whether it is ``on'' a contour or an
 // ``off'' control point.
 type Point struct {
-	X, Y int16
+	X, Y int32
 	// The Flags' LSB means whether or not this Point is ``on'' the contour.
 	// Other bits are reserved for internal use.
-	Flags uint8
+	Flags uint32
 }
 
 // A GlyphBuf holds a glyph's contours. A GlyphBuf can be re-used to load a
@@ -49,7 +49,7 @@ const (
 // and returns the remaining data.
 func (g *GlyphBuf) decodeFlags(d []byte, offset int, np0 int) (offset1 int) {
 	for i := np0; i < len(g.Point); {
-		c := d[offset]
+		c := uint32(d[offset])
 		offset++
 		g.Point[i].Flags = c
 		i++
@@ -82,7 +82,7 @@ func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0 int) int {
 			x += int16(u16(d, offset))
 			offset += 2
 		}
-		g.Point[i].X = x
+		g.Point[i].X = int32(x)
 	}
 	var y int16
 	for i := np0; i < len(g.Point); i++ {
@@ -99,19 +99,34 @@ func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0 int) int {
 			y += int16(u16(d, offset))
 			offset += 2
 		}
-		g.Point[i].Y = y
+		g.Point[i].Y = int32(y)
 	}
 	return offset
 }
 
 // Load loads a glyph's contours from a Font, overwriting any previously
-// loaded contours for this GlyphBuf.
-func (g *GlyphBuf) Load(f *Font, i Index) error {
+// loaded contours for this GlyphBuf. The Hinter is optional; if non-nil, then
+// the resulting glyph will be hinted by the Font's bytecode instructions.
+func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	// Reset the GlyphBuf.
 	g.B = Bounds{}
 	g.Point = g.Point[:0]
 	g.End = g.End[:0]
-	return g.load(f, i, 0)
+	if err := g.load(f, i, 0); err != nil {
+		return err
+	}
+	g.B.XMin = f.scale(scale * g.B.XMin)
+	g.B.YMin = f.scale(scale * g.B.YMin)
+	g.B.XMax = f.scale(scale * g.B.XMax)
+	g.B.YMax = f.scale(scale * g.B.YMax)
+	for i := range g.Point {
+		g.Point[i].X = f.scale(scale * g.Point[i].X)
+		g.Point[i].Y = f.scale(scale * g.Point[i].Y)
+	}
+	if h != nil {
+		// TODO: invoke h.
+	}
+	return nil
 }
 
 // loadCompound loads a glyph that is composed of other glyphs.
@@ -153,8 +168,8 @@ func (g *GlyphBuf) loadCompound(f *Font, glyf []byte, offset, recursion int) err
 		b0, i0 := g.B, len(g.Point)
 		g.load(f, Index(component), recursion+1)
 		for i := i0; i < len(g.Point); i++ {
-			g.Point[i].X += dx
-			g.Point[i].Y += dy
+			g.Point[i].X += int32(dx)
+			g.Point[i].Y += int32(dy)
 		}
 		if flags&flagUseMyMetrics == 0 {
 			g.B = b0
@@ -186,10 +201,10 @@ func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	glyf := f.glyf[g0:g1]
 	// Decode the contour end indices.
 	ne := int(int16(u16(glyf, 0)))
-	g.B.XMin = int16(u16(glyf, 2))
-	g.B.YMin = int16(u16(glyf, 4))
-	g.B.XMax = int16(u16(glyf, 6))
-	g.B.YMax = int16(u16(glyf, 8))
+	g.B.XMin = int32(int16(u16(glyf, 2)))
+	g.B.YMin = int32(int16(u16(glyf, 4)))
+	g.B.XMax = int32(int16(u16(glyf, 6)))
+	g.B.YMax = int32(int16(u16(glyf, 8)))
 	offset := 10
 	if ne == -1 {
 		return g.loadCompound(f, glyf, offset, recursion)

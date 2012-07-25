@@ -51,15 +51,16 @@ func main() {
 		log.Println(err)
 		return
 	}
-	printBounds(font.Bounds())
-	fmt.Printf("UnitsPerEm:%d\n\n", font.UnitsPerEm())
+	fupe := font.FUnitsPerEm()
+	printBounds(font.Bounds(fupe))
+	fmt.Printf("FUnitsPerEm:%d\n\n", fupe)
 
 	c0, c1 := 'A', 'V'
 
 	i0 := font.Index(c0)
-	hm := font.HMetric(i0)
+	hm := font.HMetric(fupe, i0)
 	g := truetype.NewGlyphBuf()
-	err = g.Load(font, i0)
+	err = g.Load(font, fupe, i0, nil)
 	if err != nil {
 		log.Println(err)
 		return
@@ -68,5 +69,5 @@ func main() {
 	fmt.Printf("AdvanceWidth:%d LeftSideBearing:%d\n", hm.AdvanceWidth, hm.LeftSideBearing)
 	printGlyph(g)
 	i1 := font.Index(c1)
-	fmt.Printf("\n'%c', '%c' Kerning:%d\n", c0, c1, font.Kerning(i0, i1))
+	fmt.Printf("\n'%c', '%c' Kerning:%d\n", c0, c1, font.Kerning(fupe, i0, i1))
 }

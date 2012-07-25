@@ -7,10 +7,15 @@
 // Those formats are documented at http://developer.apple.com/fonts/TTRefMan/
 // and http://www.microsoft.com/typography/otspec/
 //
-// All numbers (e.g. bounds, point co-ordinates, font metrics) are measured in
-// FUnits. To convert from FUnits to pixels, scale by
-// (pointSize * resolution) / (font.UnitsPerEm() * 72dpi)
-// For example, 550 FUnits at 18pt, 72dpi and 2048upe is 4.83 pixels.
+// Some of a font's methods provide lengths or co-ordinates, e.g. bounds, font
+// metrics and control points. All these methods take a scale parameter, which
+// is the number of device units in 1 em. For example, if 1 em is 10 pixels and
+// 1 pixel is 64 units, then scale is 640. If the device space involves pixels,
+// 64 units per pixel is recommended, since that is what the bytecode hinter
+// uses when snapping point co-ordinates to the pixel grid.
+//
+// To measure a TrueType font in ideal FUnit space, use scale equal to
+// font.FUnitsPerEm().
 package truetype
 
 import (
@@ -23,13 +28,13 @@ type Index uint16
 // A Bounds holds the co-ordinate range of one or more glyphs.
 // The endpoints are inclusive.
 type Bounds struct {
-	XMin, YMin, XMax, YMax int16
+	XMin, YMin, XMax, YMax int32
 }
 
 // An HMetric holds the horizontal metrics of a single glyph.
 type HMetric struct {
-	AdvanceWidth    uint16
-	LeftSideBearing int16
+	AdvanceWidth    int32
+	LeftSideBearing int32
 }
 
 // A FormatError reports that the input is not a valid TrueType font.
@@ -96,7 +101,7 @@ type Font struct {
 	cm                      []cm
 	locaOffsetFormat        int
 	nGlyph, nHMetric, nKern int
-	unitsPerEm              int
+	fUnitsPerEm             int32
 	bounds                  Bounds
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
@@ -183,11 +188,11 @@ func (f *Font) parseHead() error {
 	if len(f.head) != 54 {
 		return FormatError(fmt.Sprintf("bad head length: %d", len(f.head)))
 	}
-	f.unitsPerEm = int(u16(f.head, 18))
-	f.bounds.XMin = int16(u16(f.head, 36))
-	f.bounds.YMin = int16(u16(f.head, 38))
-	f.bounds.XMax = int16(u16(f.head, 40))
-	f.bounds.YMax = int16(u16(f.head, 42))
+	f.fUnitsPerEm = int32(u16(f.head, 18))
+	f.bounds.XMin = int32(int16(u16(f.head, 36)))
+	f.bounds.YMin = int32(int16(u16(f.head, 38)))
+	f.bounds.XMax = int32(int16(u16(f.head, 40)))
+	f.bounds.YMax = int32(int16(u16(f.head, 42)))
 	switch i := u16(f.head, 50); i {
 	case 0:
 		f.locaOffsetFormat = locaOffsetFormatShort
@@ -263,14 +268,29 @@ func (f *Font) parseMaxp() error {
 	return nil
 }
 
-// Bounds returns the union of a Font's glyphs' bounds.
-func (f *Font) Bounds() Bounds {
-	return f.bounds
+// scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
+func (f *Font) scale(x int32) int32 {
+	if x >= 0 {
+		x += f.fUnitsPerEm / 2
+	} else {
+		x -= f.fUnitsPerEm / 2
+	}
+	return x / f.fUnitsPerEm
 }
 
-// UnitsPerEm returns the number of FUnits in a Font's em-square.
-func (f *Font) UnitsPerEm() int {
-	return f.unitsPerEm
+// Bounds returns the union of a Font's glyphs' bounds.
+func (f *Font) Bounds(scale int32) Bounds {
+	b := f.bounds
+	b.XMin = f.scale(scale * b.XMin)
+	b.YMin = f.scale(scale * b.YMin)
+	b.XMax = f.scale(scale * b.XMax)
+	b.YMax = f.scale(scale * b.YMax)
+	return b
+}
+
+// FUnitsPerEm returns the number of FUnits in a Font's em-square's side.
+func (f *Font) FUnitsPerEm() int32 {
+	return f.fUnitsPerEm
 }
 
 // Index returns a Font's index for the given rune.
@@ -290,23 +310,26 @@ func (f *Font) Index(x rune) Index {
 }
 
 // HMetric returns the horizontal metrics for the glyph with the given index.
-func (f *Font) HMetric(i Index) HMetric {
+func (f *Font) HMetric(scale int32, i Index) (h HMetric) {
 	j := int(i)
 	if j >= f.nGlyph {
 		return HMetric{}
 	}
 	if j >= f.nHMetric {
 		p := 4 * (f.nHMetric - 1)
-		return HMetric{
-			u16(f.hmtx, p),
-			int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4)),
-		}
+		h.AdvanceWidth = int32(u16(f.hmtx, p))
+		h.LeftSideBearing = int32(int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4)))
+	} else {
+		h.AdvanceWidth = int32(u16(f.hmtx, 4*j))
+		h.LeftSideBearing = int32(int16(u16(f.hmtx, 4*j+2)))
 	}
-	return HMetric{u16(f.hmtx, 4*j), int16(u16(f.hmtx, 4*j+2))}
+	h.AdvanceWidth = f.scale(scale * h.AdvanceWidth)
+	h.LeftSideBearing = f.scale(scale * h.LeftSideBearing)
+	return h
 }
 
 // Kerning returns the kerning for the given glyph pair.
-func (f *Font) Kerning(i0, i1 Index) int16 {
+func (f *Font) Kerning(scale int32, i0, i1 Index) int32 {
 	if f.nKern == 0 {
 		return 0
 	}
@@ -320,7 +343,7 @@ func (f *Font) Kerning(i0, i1 Index) int16 {
 		} else if ig > g {
 			hi = i
 		} else {
-			return int16(u16(f.kern, 22+6*i))
+			return f.scale(scale * int32(int16(u16(f.kern, 22+6*i))))
 		}
 	}
 	return 0

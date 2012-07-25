@@ -12,7 +12,10 @@ import (
 	"errors"
 )
 
-type hinter struct {
+// Hinter implements bytecode hinting. Pass a Hinter to GlyphBuf.Load to hint
+// the resulting glyph. A Hinter can be re-used to hint a series of glyphs from
+// a Font.
+type Hinter struct {
 	stack, store []int32
 
 	// The fields below constitue the graphics state, which is described at
@@ -28,7 +31,7 @@ type hinter struct {
 	roundPeriod, roundPhase, roundThreshold f26dot6
 }
 
-func (h *hinter) init(f *Font) {
+func (h *Hinter) init(f *Font) {
 	if x := int(f.maxStackElements); x > len(h.stack) {
 		x += 255
 		x &^= 255
@@ -41,7 +44,7 @@ func (h *hinter) init(f *Font) {
 	}
 }
 
-func (h *hinter) run(program []byte) error {
+func (h *Hinter) run(program []byte) error {
 	// The default vectors are along the X axis.
 	h.pv = [2]f2dot14{0x4000, 0}
 	h.fv = [2]f2dot14{0x4000, 0}
@@ -517,7 +520,7 @@ func (x f26dot6) mul(y f26dot6) f26dot6 {
 
 // round rounds the given number. The rounding algorithm is described at
 // https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
-func (h *hinter) round(x f26dot6) f26dot6 {
+func (h *Hinter) round(x f26dot6) f26dot6 {
 	if h.roundPeriod == 0 {
 		return x
 	}

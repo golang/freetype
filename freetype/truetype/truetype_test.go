@@ -22,11 +22,12 @@ func TestParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := font.Bounds(), (Bounds{-441, -432, 2024, 2033}); got != want {
-		t.Errorf("Bounds: got %v, want %v", got, want)
+	if got, want := font.FUnitsPerEm(), int32(2048); got != want {
+		t.Errorf("FUnitsPerEm: got %v, want %v", got, want)
 	}
-	if got, want := font.UnitsPerEm(), 2048; got != want {
-		t.Errorf("UnitsPerEm: got %v, want %v", got, want)
+	fupe := font.FUnitsPerEm()
+	if got, want := font.Bounds(fupe), (Bounds{-441, -432, 2024, 2033}); got != want {
+		t.Errorf("Bounds: got %v, want %v", got, want)
 	}
 
 	i0 := font.Index('A')
@@ -34,15 +35,15 @@ func TestParse(t *testing.T) {
 	if i0 != 36 || i1 != 57 {
 		t.Fatalf("Index: i0, i1 = %d, %d, want 36, 57", i0, i1)
 	}
-	if got, want := font.HMetric(i0), (HMetric{1366, 19}); got != want {
+	if got, want := font.HMetric(fupe, i0), (HMetric{1366, 19}); got != want {
 		t.Errorf("HMetric: got %v, want %v", got, want)
 	}
-	if got, want := font.Kerning(i0, i1), int16(-144); got != want {
+	if got, want := font.Kerning(fupe, i0, i1), int32(-144); got != want {
 		t.Errorf("Kerning: got %v, want %v", got, want)
 	}
 
 	g0 := NewGlyphBuf()
-	err = g0.Load(font, i0)
+	err = g0.Load(font, fupe, i0, nil)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
