@@ -124,6 +124,9 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 		g.Point[i].Y = f.scale(scale * g.Point[i].Y)
 	}
 	if h != nil {
+		if err := h.init(f, scale); err != nil {
+			return err
+		}
 		// TODO: invoke h.
 	}
 	return nil

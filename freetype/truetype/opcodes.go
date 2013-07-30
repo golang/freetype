@@ -52,10 +52,10 @@ const (
 	opALIGNPTS  = 0x27
 	op_0x28     = 0x28
 	opUTP       = 0x29
-	opLOOPCALL  = 0x2a
-	opCALL      = 0x2b
-	opFDEF      = 0x2c
-	opENDF      = 0x2d
+	opLOOPCALL  = 0x2a // LOOP and CALL function
+	opCALL      = 0x2b // CALL function
+	opFDEF      = 0x2c // Function DEFinition
+	opENDF      = 0x2d // END Function definition
 	opMDAP0     = 0x2e
 	opMDAP1     = 0x2f
 	opIUP0      = 0x30
@@ -273,7 +273,7 @@ var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	0, 0, 0, 0, 0, 0, q, q, q, q, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
 	q, q, q, q, q, q, q, 1, 0, 0, 1, 0, 1, q, q, q, // 0x10 - 0x1f
-	1, 1, 0, 2, 0, 1, 1, q, q, q, q, q, q, q, q, q, // 0x20 - 0x2f
+	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, q, q, // 0x20 - 0x2f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, 0, q, q, // 0x30 - 0x3f
 	0, 0, 2, 1, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f

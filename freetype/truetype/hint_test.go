@@ -52,16 +52,16 @@ func TestBytecode(t *testing.T) {
 			"vector set/gets",
 			[]byte{
 				opSVTCA1,   // []
-				opGPV,      // [ 0x4000, 0 ]
-				opSVTCA0,   // [ 0x4000, 0 ]
-				opGFV,      // [ 0x4000, 0, 0, 0x4000 ]
-				opNEG,      // [ 0x4000, 0, 0, -0x4000 ]
-				opSPVFS,    // [ 0x4000, 0 ]
-				opSFVTPV,   // [ 0x4000, 0 ]
-				opPUSHB000, // [ 0x4000, 0, 1 ]
+				opGPV,      // [0x4000, 0]
+				opSVTCA0,   // [0x4000, 0]
+				opGFV,      // [0x4000, 0, 0, 0x4000]
+				opNEG,      // [0x4000, 0, 0, -0x4000]
+				opSPVFS,    // [0x4000, 0]
+				opSFVTPV,   // [0x4000, 0]
+				opPUSHB000, // [0x4000, 0, 1]
 				1,
-				opGFV,      // [ 0x4000, 0, 1, 0, -0x4000 ]
-				opPUSHB000, // [ 0x4000, 0, 1, 0, -0x4000, 2 ]
+				opGFV,      // [0x4000, 0, 1, 0, -0x4000]
+				opPUSHB000, // [0x4000, 0, 1, 0, -0x4000, 2]
 				2,
 			},
 			[]int32{0x4000, 0, 1, 0, -0x4000, 2},
@@ -505,6 +505,52 @@ func TestBytecode(t *testing.T) {
 			[]int32{-2, -5},
 			"",
 		},
+		{
+			"functions",
+			[]byte{
+				opPUSHB011, // [3, 7, 0, 3]
+				3,
+				7,
+				0,
+				3,
+
+				opFDEF, // Function #3 (not called)
+				opPUSHB000,
+				98,
+				opENDF,
+
+				opFDEF, // Function #0
+				opDUP,
+				opADD,
+				opENDF,
+
+				opFDEF, // Function #7
+				opPUSHB001,
+				10,
+				0,
+				opCALL,
+				opDUP,
+				opENDF,
+
+				opFDEF, // Function #3 (again)
+				opPUSHB000,
+				99,
+				opENDF,
+
+				opPUSHB001, // [2, 0]
+				2,
+				0,
+				opCALL,     // [4]
+				opPUSHB000, // [4, 3]
+				3,
+				opLOOPCALL, // [99, 99, 99, 99]
+				opPUSHB000, // [99, 99, 99, 99, 7]
+				7,
+				opCALL, // [99, 99, 99, 99, 20, 20]
+			},
+			[]int32{99, 99, 99, 99, 20, 20},
+			"",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -512,7 +558,7 @@ func TestBytecode(t *testing.T) {
 		h.init(&Font{
 			maxStorage:       32,
 			maxStackElements: 100,
-		})
+		}, 768)
 		err, errStr := h.run(tc.prog), ""
 		if err != nil {
 			errStr = err.Error()
@@ -531,7 +577,7 @@ func TestBytecode(t *testing.T) {
 		}
 		got := h.stack[:len(tc.want)]
 		if !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("got %v, want %v", got, tc.want)
+			t.Errorf("%s: got %v, want %v", tc.desc, got, tc.want)
 			continue
 		}
 	}

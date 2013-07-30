@@ -94,8 +94,9 @@ type cm struct {
 type Font struct {
 	// Tables sliced from the TTF data. The different tables are documented
 	// at http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html
-	cmap, glyf, head, hhea, hmtx, kern, loca, maxp []byte
-	cmapIndexes                                    []byte
+	cmap, cvt, fpgm, glyf, head, hhea, hmtx, kern, loca, maxp, prep []byte
+
+	cmapIndexes []byte
 
 	// Cached values derived from the raw ttf data.
 	cm                      []cm
@@ -411,6 +412,10 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 		switch string(ttf[x : x+4]) {
 		case "cmap":
 			f.cmap, err = readTable(ttf, ttf[x+8:x+16])
+		case "cvt ":
+			f.cvt, err = readTable(ttf, ttf[x+8:x+16])
+		case "fpgm":
+			f.fpgm, err = readTable(ttf, ttf[x+8:x+16])
 		case "glyf":
 			f.glyf, err = readTable(ttf, ttf[x+8:x+16])
 		case "head":
@@ -425,6 +430,8 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			f.loca, err = readTable(ttf, ttf[x+8:x+16])
 		case "maxp":
 			f.maxp, err = readTable(ttf, ttf[x+8:x+16])
+		case "prep":
+			f.prep, err = readTable(ttf, ttf[x+8:x+16])
 		}
 		if err != nil {
 			return

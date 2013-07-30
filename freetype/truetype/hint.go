@@ -12,11 +12,27 @@ import (
 	"errors"
 )
 
+// callStackEntry is a bytecode call stack entry.
+type callStackEntry struct {
+	program   []byte
+	pc        int
+	loopCount int32
+}
+
 // Hinter implements bytecode hinting. Pass a Hinter to GlyphBuf.Load to hint
 // the resulting glyph. A Hinter can be re-used to hint a series of glyphs from
 // a Font.
 type Hinter struct {
 	stack, store []int32
+
+	// functions is a map from function number to bytecode.
+	functions map[int32][]byte
+
+	// font and scale are the font and scale last used for this Hinter.
+	// Changing the font will require running the new font's fpgm bytecode.
+	// Changing either will require running the font's prep bytecode.
+	font  *Font
+	scale int32
 
 	// The fields below constitue the graphics state, which is described at
 	// https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
@@ -31,17 +47,44 @@ type Hinter struct {
 	roundPeriod, roundPhase, roundThreshold f26dot6
 }
 
-func (h *Hinter) init(f *Font) {
-	if x := int(f.maxStackElements); x > len(h.stack) {
-		x += 255
-		x &^= 255
-		h.stack = make([]int32, x)
+func (h *Hinter) init(f *Font, scale int32) error {
+	rescale := h.scale != scale
+	if h.font != f {
+		h.font, rescale = f, true
+		if h.functions == nil {
+			h.functions = make(map[int32][]byte)
+		} else {
+			for k := range h.functions {
+				delete(h.functions, k)
+			}
+		}
+
+		if x := int(f.maxStackElements); x > len(h.stack) {
+			x += 255
+			x &^= 255
+			h.stack = make([]int32, x)
+		}
+		if x := int(f.maxStorage); x > len(h.store) {
+			x += 15
+			x &^= 15
+			h.store = make([]int32, x)
+		}
+		if len(f.fpgm) != 0 {
+			if err := h.run(f.fpgm); err != nil {
+				return err
+			}
+		}
 	}
-	if x := int(f.maxStorage); x > len(h.store) {
-		x += 15
-		x &^= 15
-		h.store = make([]int32, x)
+
+	if rescale {
+		h.scale = scale
+		if len(f.prep) != 0 {
+			if err := h.run(f.prep); err != nil {
+				return err
+			}
+		}
 	}
+	return nil
 }
 
 func (h *Hinter) run(program []byte) error {
@@ -64,7 +107,11 @@ func (h *Hinter) run(program []byte) error {
 	var (
 		steps, pc, top int
 		opcode         uint8
+
+		callStack    [32]callStackEntry
+		callStackTop int
 	)
+
 	for 0 <= pc && pc < len(program) {
 		steps++
 		if steps == 100000 {
@@ -198,6 +245,65 @@ func (h *Hinter) run(program []byte) error {
 				copy(h.stack[top-1-x:top-1], h.stack[top-x:top])
 				top--
 			}
+
+		case opLOOPCALL, opCALL:
+			if callStackTop >= len(callStack) {
+				return errors.New("truetype: hinting: call stack overflow")
+			}
+			top--
+			f, ok := h.functions[h.stack[top]]
+			if !ok {
+				return errors.New("truetype: hinting: undefined function")
+			}
+			callStack[callStackTop] = callStackEntry{program, pc, 1}
+			if opcode == opLOOPCALL {
+				top--
+				if h.stack[top] == 0 {
+					break
+				}
+				callStack[callStackTop].loopCount = h.stack[top]
+			}
+			callStackTop++
+			program, pc = f, 0
+			continue
+
+		case opFDEF:
+			// Save all bytecode up until the next ENDF.
+			startPC := pc + 1
+		fdefloop:
+			for {
+				pc++
+				if pc >= len(program) {
+					return errors.New("truetype: hinting: unbalanced FDEF")
+				}
+				switch program[pc] {
+				case opFDEF:
+					return errors.New("truetype: hinting: nested FDEF")
+				case opENDF:
+					top--
+					h.functions[h.stack[top]] = program[startPC : pc+1]
+					break fdefloop
+				default:
+					var ok bool
+					pc, ok = skipInstructionPayload(program, pc)
+					if !ok {
+						return errors.New("truetype: hinting: unbalanced FDEF")
+					}
+				}
+			}
+
+		case opENDF:
+			if callStackTop == 0 {
+				return errors.New("truetype: hinting: call stack underflow")
+			}
+			callStackTop--
+			callStack[callStackTop].loopCount--
+			if callStack[callStackTop].loopCount != 0 {
+				callStackTop++
+				pc = 0
+				continue
+			}
+			program, pc = callStack[callStackTop].program, callStack[callStackTop].pc
 
 		case opRTDG:
 			h.roundPeriod = 1 << 5
@@ -386,7 +492,8 @@ func (h *Hinter) run(program []byte) error {
 			return errors.New("truetype: hinting: unsupported IDEF instruction")
 
 		case opROLL:
-			h.stack[top-1], h.stack[top-3], h.stack[top-2] = h.stack[top-3], h.stack[top-2], h.stack[top-1]
+			h.stack[top-1], h.stack[top-3], h.stack[top-2] =
+				h.stack[top-3], h.stack[top-2], h.stack[top-1]
 
 		case opMAX:
 			top--
@@ -400,11 +507,15 @@ func (h *Hinter) run(program []byte) error {
 				h.stack[top-1] = h.stack[top]
 			}
 
-		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011, opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
+		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011,
+			opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
+
 			opcode -= opPUSHB000 - 1
 			goto push
 
-		case opPUSHW000, opPUSHW001, opPUSHW010, opPUSHW011, opPUSHW100, opPUSHW101, opPUSHW110, opPUSHW111:
+		case opPUSHW000, opPUSHW001, opPUSHW010, opPUSHW011,
+			opPUSHW100, opPUSHW101, opPUSHW110, opPUSHW111:
+
 			opcode -= opPUSHW000 - 1
 			opcode += 0x80
 			goto push
@@ -438,24 +549,12 @@ func (h *Hinter) run(program []byte) error {
 					if depth < 0 {
 						break ifelseloop
 					}
-				case opNPUSHB:
-					pc++
-					if pc >= len(program) {
-						return errors.New("truetype: hinting: unbalanced IF or ELSE")
-					}
-					pc += int(program[pc])
-				case opNPUSHW:
-					pc++
-					if pc >= len(program) {
-						return errors.New("truetype: hinting: unbalanced IF or ELSE")
-					}
-					pc += 2 * int(program[pc])
-				case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011, opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
-					pc += int(program[pc] - (opPUSHB000 - 1))
-				case opPUSHW000, opPUSHW001, opPUSHW010, opPUSHW011, opPUSHW100, opPUSHW101, opPUSHW110, opPUSHW111:
-					pc += 2 * int(program[pc]-(opPUSHW000-1))
 				default:
-					// No-op.
+					var ok bool
+					pc, ok = skipInstructionPayload(program, pc)
+					if !ok {
+						return errors.New("truetype: hinting: unbalanced IF or ELSE")
+					}
 				}
 			}
 			pc++
@@ -500,6 +599,32 @@ func (h *Hinter) run(program []byte) error {
 		}
 	}
 	return nil
+}
+
+// skipInstructionPayload increments pc by the extra data that follows a
+// variable length PUSHB or PUSHW instruction.
+func skipInstructionPayload(program []byte, pc int) (newPC int, ok bool) {
+	switch program[pc] {
+	case opNPUSHB:
+		pc++
+		if pc >= len(program) {
+			return 0, false
+		}
+		pc += int(program[pc])
+	case opNPUSHW:
+		pc++
+		if pc >= len(program) {
+			return 0, false
+		}
+		pc += 2 * int(program[pc])
+	case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011,
+		opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
+		pc += int(program[pc] - (opPUSHB000 - 1))
+	case opPUSHW000, opPUSHW001, opPUSHW010, opPUSHW011,
+		opPUSHW100, opPUSHW101, opPUSHW110, opPUSHW111:
+		pc += 2 * int(program[pc]-(opPUSHW000-1))
+	}
+	return pc, true
 }
 
 // f2dot14 is a 2.14 fixed point number.
