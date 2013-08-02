@@ -34,17 +34,45 @@ type Hinter struct {
 	font  *Font
 	scale int32
 
-	// The fields below constitue the graphics state, which is described at
-	// https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
+	// gs and defaultGS are the current and default graphics state. The
+	// default graphics state is the global default graphics state after
+	// the font's fpgm and prep programs have been run.
+	gs, defaultGS graphicsState
+}
 
+// graphicsState is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
+type graphicsState struct {
 	// Projection vector, freedom vector and dual projection vector.
 	pv, fv, dv [2]f2dot14
+	// Reference points and zone pointers.
+	rp, zp [3]int32
+	// Control Value / Single Width Cut-In.
+	controlValueCutIn, singleWidthCutIn, singleWidth f26dot6
+	// Delta base / shift.
+	deltaBase, deltaShift int32
 	// Minimum distance.
 	minDist f26dot6
 	// Loop count.
 	loop int32
 	// Rounding policy.
 	roundPeriod, roundPhase, roundThreshold f26dot6
+	// Auto-flip.
+	autoFlip bool
+}
+
+var globalDefaultGS = graphicsState{
+	pv:                [2]f2dot14{0x4000, 0}, // Unit vector along the X axis.
+	fv:                [2]f2dot14{0x4000, 0},
+	dv:                [2]f2dot14{0x4000, 0},
+	zp:                [3]int32{1, 1, 1},
+	controlValueCutIn: (17 << 6) / 16, // 17/16 as an f26dot6.
+	deltaBase:         9,
+	deltaShift:        3,
+	minDist:           1 << 6, // 1 as an f26dot6.
+	loop:              1,
+	roundPeriod:       1 << 6, // 1 as an f26dot6.
+	roundThreshold:    1 << 5, // 1/2 as an f26dot6.
+	autoFlip:          true,
 }
 
 func (h *Hinter) init(f *Font, scale int32) error {
@@ -78,28 +106,29 @@ func (h *Hinter) init(f *Font, scale int32) error {
 
 	if rescale {
 		h.scale = scale
+
+		h.defaultGS = globalDefaultGS
+
 		if len(f.prep) != 0 {
 			if err := h.run(f.prep); err != nil {
 				return err
 			}
+			h.defaultGS = h.gs
+			// The MS rasterizer doesn't allow the following graphics state
+			// variables to be modified by the CVT program.
+			h.defaultGS.pv = globalDefaultGS.pv
+			h.defaultGS.fv = globalDefaultGS.fv
+			h.defaultGS.dv = globalDefaultGS.dv
+			h.defaultGS.rp = globalDefaultGS.rp
+			h.defaultGS.zp = globalDefaultGS.zp
+			h.defaultGS.loop = globalDefaultGS.loop
 		}
 	}
 	return nil
 }
 
 func (h *Hinter) run(program []byte) error {
-	// The default vectors are along the X axis.
-	h.pv = [2]f2dot14{0x4000, 0}
-	h.fv = [2]f2dot14{0x4000, 0}
-	h.dv = [2]f2dot14{0x4000, 0}
-	// The default minimum distance is 1.
-	h.minDist = 1 << 6
-	// The default loop count is 1.
-	h.loop = 1
-	// The default rounding policy is round to grid.
-	h.roundPeriod = 1 << 6
-	h.roundPhase = 0
-	h.roundThreshold = 1 << 5
+	h.gs = h.defaultGS
 
 	if len(program) > 50000 {
 		return errors.New("truetype: hinting: too many instructions")
@@ -127,81 +156,95 @@ func (h *Hinter) run(program []byte) error {
 		switch opcode {
 
 		case opSVTCA0:
-			h.pv = [2]f2dot14{0, 0x4000}
-			h.fv = [2]f2dot14{0, 0x4000}
-			// TODO: h.dv = h.pv ??
+			h.gs.pv = [2]f2dot14{0, 0x4000}
+			h.gs.fv = [2]f2dot14{0, 0x4000}
+			// TODO: h.gs.dv = h.gs.pv ??
 
 		case opSVTCA1:
-			h.pv = [2]f2dot14{0x4000, 0}
-			h.fv = [2]f2dot14{0x4000, 0}
-			// TODO: h.dv = h.pv ??
+			h.gs.pv = [2]f2dot14{0x4000, 0}
+			h.gs.fv = [2]f2dot14{0x4000, 0}
+			// TODO: h.gs.dv = h.gs.pv ??
 
 		case opSPVTCA0:
-			h.pv = [2]f2dot14{0, 0x4000}
-			// TODO: h.dv = h.pv ??
+			h.gs.pv = [2]f2dot14{0, 0x4000}
+			// TODO: h.gs.dv = h.gs.pv ??
 
 		case opSPVTCA1:
-			h.pv = [2]f2dot14{0x4000, 0}
-			// TODO: h.dv = h.pv ??
+			h.gs.pv = [2]f2dot14{0x4000, 0}
+			// TODO: h.gs.dv = h.gs.pv ??
 
 		case opSFVTCA0:
-			h.fv = [2]f2dot14{0, 0x4000}
+			h.gs.fv = [2]f2dot14{0, 0x4000}
 
 		case opSFVTCA1:
-			h.fv = [2]f2dot14{0x4000, 0}
+			h.gs.fv = [2]f2dot14{0x4000, 0}
 
 		case opSPVFS:
 			top -= 2
-			h.pv[0] = f2dot14(h.stack[top+0])
-			h.pv[1] = f2dot14(h.stack[top+1])
-			// TODO: normalize h.pv ??
-			// TODO: h.dv = h.pv ??
+			h.gs.pv[0] = f2dot14(h.stack[top+0])
+			h.gs.pv[1] = f2dot14(h.stack[top+1])
+			// TODO: normalize h.gs.pv ??
+			// TODO: h.gs.dv = h.gs.pv ??
 
 		case opSFVFS:
 			top -= 2
-			h.fv[0] = f2dot14(h.stack[top+0])
-			h.fv[1] = f2dot14(h.stack[top+1])
-			// TODO: normalize h.fv ??
+			h.gs.fv[0] = f2dot14(h.stack[top+0])
+			h.gs.fv[1] = f2dot14(h.stack[top+1])
+			// TODO: normalize h.gs.fv ??
 
 		case opGPV:
 			if top+1 >= len(h.stack) {
 				return errors.New("truetype: hinting: stack overflow")
 			}
-			h.stack[top+0] = int32(h.pv[0])
-			h.stack[top+1] = int32(h.pv[1])
+			h.stack[top+0] = int32(h.gs.pv[0])
+			h.stack[top+1] = int32(h.gs.pv[1])
 			top += 2
 
 		case opGFV:
 			if top+1 >= len(h.stack) {
 				return errors.New("truetype: hinting: stack overflow")
 			}
-			h.stack[top+0] = int32(h.fv[0])
-			h.stack[top+1] = int32(h.fv[1])
+			h.stack[top+0] = int32(h.gs.fv[0])
+			h.stack[top+1] = int32(h.gs.fv[1])
 			top += 2
 
 		case opSFVTPV:
-			h.fv = h.pv
+			h.gs.fv = h.gs.pv
+
+		case opSRP0, opSRP1, opSRP2:
+			top--
+			h.gs.rp[opcode-opSRP0] = h.stack[top]
+
+		case opSZP0, opSZP1, opSZP2:
+			top--
+			h.gs.zp[opcode-opSZP0] = h.stack[top]
+
+		case opSZPS:
+			top--
+			h.gs.zp[0] = h.stack[top]
+			h.gs.zp[1] = h.stack[top]
+			h.gs.zp[2] = h.stack[top]
 
 		case opSLOOP:
 			top--
 			if h.stack[top] <= 0 {
 				return errors.New("truetype: hinting: invalid data")
 			}
-			h.loop = h.stack[top]
+			h.gs.loop = h.stack[top]
 
 		case opRTG:
-			h.roundPeriod = 1 << 6
-			h.roundPhase = 0
-			h.roundThreshold = 1 << 5
+			h.gs.roundPeriod = 1 << 6
+			h.gs.roundPhase = 0
+			h.gs.roundThreshold = 1 << 5
 
 		case opRTHG:
-			h.roundPeriod = 1 << 6
-			h.roundPhase = 1 << 5
-			h.roundThreshold = 1 << 5
+			h.gs.roundPeriod = 1 << 6
+			h.gs.roundPhase = 1 << 5
+			h.gs.roundThreshold = 1 << 5
 
 		case opSMD:
 			top--
-			h.minDist = f26dot6(h.stack[top])
+			h.gs.minDist = f26dot6(h.stack[top])
 
 		case opELSE:
 			opcode = 1
@@ -211,6 +254,18 @@ func (h *Hinter) run(program []byte) error {
 			top--
 			pc += int(h.stack[top])
 			continue
+
+		case opSCVTCI:
+			top--
+			h.gs.controlValueCutIn = f26dot6(h.stack[top])
+
+		case opSSWCI:
+			top--
+			h.gs.singleWidthCutIn = f26dot6(h.stack[top])
+
+		case opSSW:
+			top--
+			h.gs.singleWidth = f26dot6(h.stack[top])
 
 		case opDUP:
 			if top >= len(h.stack) {
@@ -306,9 +361,9 @@ func (h *Hinter) run(program []byte) error {
 			program, pc = callStack[callStackTop].program, callStack[callStackTop].pc
 
 		case opRTDG:
-			h.roundPeriod = 1 << 5
-			h.roundPhase = 0
-			h.roundThreshold = 1 << 4
+			h.gs.roundPeriod = 1 << 5
+			h.gs.roundPhase = 0
+			h.gs.roundThreshold = 1 << 4
 
 		case opNPUSHB:
 			opcode = 0
@@ -332,6 +387,17 @@ func (h *Hinter) run(program []byte) error {
 				return errors.New("truetype: hinting: invalid data")
 			}
 			h.stack[top-1] = h.store[i]
+
+		case opMPPEM, opMPS:
+			if top >= len(h.stack) {
+				return errors.New("truetype: hinting: stack overflow")
+			}
+			// For MPS, point size should be irrelevant; we return the PPEM.
+			h.stack[top] = h.scale >> 6
+			top++
+
+		case opFLIPON, opFLIPOFF:
+			h.gs.autoFlip = opcode == opFLIPON
 
 		case opDEBUG:
 			// No-op.
@@ -385,6 +451,14 @@ func (h *Hinter) run(program []byte) error {
 		case opNOT:
 			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
 
+		case opSDB:
+			top--
+			h.gs.deltaBase = h.stack[top]
+
+		case opSDS:
+			top--
+			h.gs.deltaShift = h.stack[top]
+
 		case opADD:
 			top--
 			h.stack[top-1] += h.stack[top]
@@ -435,23 +509,23 @@ func (h *Hinter) run(program []byte) error {
 			top--
 			switch (h.stack[top] >> 6) & 0x03 {
 			case 0:
-				h.roundPeriod = 1 << 5
+				h.gs.roundPeriod = 1 << 5
 			case 1, 3:
-				h.roundPeriod = 1 << 6
+				h.gs.roundPeriod = 1 << 6
 			case 2:
-				h.roundPeriod = 1 << 7
+				h.gs.roundPeriod = 1 << 7
 			}
 			if opcode == opS45ROUND {
 				// The spec says to multiply by √2, but the C Freetype code says 1/√2.
 				// We go with 1/√2.
-				h.roundPeriod *= 46341
-				h.roundPeriod /= 65536
+				h.gs.roundPeriod *= 46341
+				h.gs.roundPeriod /= 65536
 			}
-			h.roundPhase = h.roundPeriod * f26dot6((h.stack[top]>>4)&0x03) / 4
+			h.gs.roundPhase = h.gs.roundPeriod * f26dot6((h.stack[top]>>4)&0x03) / 4
 			if x := h.stack[top] & 0x0f; x != 0 {
-				h.roundThreshold = h.roundPeriod * f26dot6(x-4) / 8
+				h.gs.roundThreshold = h.gs.roundPeriod * f26dot6(x-4) / 8
 			} else {
-				h.roundThreshold = h.roundPeriod - 1
+				h.gs.roundThreshold = h.gs.roundPeriod - 1
 			}
 
 		case opJROT:
@@ -469,23 +543,42 @@ func (h *Hinter) run(program []byte) error {
 			}
 
 		case opROFF:
-			h.roundPeriod = 0
-			h.roundPhase = 0
-			h.roundThreshold = 0
+			h.gs.roundPeriod = 0
+			h.gs.roundPhase = 0
+			h.gs.roundThreshold = 0
 
 		case opRUTG:
-			h.roundPeriod = 1 << 6
-			h.roundPhase = 0
-			h.roundThreshold = 1<<6 - 1
+			h.gs.roundPeriod = 1 << 6
+			h.gs.roundPhase = 0
+			h.gs.roundThreshold = 1<<6 - 1
 
 		case opRDTG:
-			h.roundPeriod = 1 << 6
-			h.roundPhase = 0
-			h.roundThreshold = 0
+			h.gs.roundPeriod = 1 << 6
+			h.gs.roundPhase = 0
+			h.gs.roundThreshold = 0
 
 		case opSANGW, opAA:
 			// These ops are "anachronistic" and no longer used.
 			top--
+
+		case opSCANCTRL:
+			// We do not support dropout control, as we always rasterize grayscale glyphs.
+			top--
+
+		case opGETINFO:
+			res := int32(0)
+			if h.stack[top-1]&(1<<0) != 0 {
+				// Set the engine version. We hard-code this to 35, the same as
+				// the C freetype code, which says that "Version~35 corresponds
+				// to MS rasterizer v.1.7 as used e.g. in Windows~98".
+				res |= 35
+			}
+			if h.stack[top-1]&(1<<5) != 0 {
+				// Set that we support grayscale.
+				res |= 1 << 12
+			}
+			// We set no other bits, as we do not support rotated or stretched glyphs.
+			h.stack[top-1] = res
 
 		case opIDEF:
 			// IDEF is for ancient versions of the bytecode interpreter, and is no longer used.
@@ -506,6 +599,10 @@ func (h *Hinter) run(program []byte) error {
 			if h.stack[top-1] > h.stack[top] {
 				h.stack[top-1] = h.stack[top]
 			}
+
+		case opSCANTYPE:
+			// We do not support dropout control, as we always rasterize grayscale glyphs.
+			top--
 
 		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011,
 			opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
@@ -646,26 +743,26 @@ func (x f26dot6) mul(y f26dot6) f26dot6 {
 // round rounds the given number. The rounding algorithm is described at
 // https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
 func (h *Hinter) round(x f26dot6) f26dot6 {
-	if h.roundPeriod == 0 {
+	if h.gs.roundPeriod == 0 {
 		return x
 	}
 	neg := x < 0
-	x -= h.roundPhase
-	x += h.roundThreshold
+	x -= h.gs.roundPhase
+	x += h.gs.roundThreshold
 	if x >= 0 {
-		x = (x / h.roundPeriod) * h.roundPeriod
+		x = (x / h.gs.roundPeriod) * h.gs.roundPeriod
 	} else {
-		x -= h.roundPeriod
+		x -= h.gs.roundPeriod
 		x += 1
-		x = (x / h.roundPeriod) * h.roundPeriod
+		x = (x / h.gs.roundPeriod) * h.gs.roundPeriod
 	}
-	x += h.roundPhase
+	x += h.gs.roundPhase
 	if neg {
 		if x >= 0 {
-			x = h.roundPhase - h.roundPeriod
+			x = h.gs.roundPhase - h.gs.roundPeriod
 		}
 	} else if x < 0 {
-		x = h.roundPhase
+		x = h.gs.roundPhase
 	}
 	return x
 }

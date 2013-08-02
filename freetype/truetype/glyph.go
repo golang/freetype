@@ -105,8 +105,9 @@ func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0 int) int {
 }
 
 // Load loads a glyph's contours from a Font, overwriting any previously
-// loaded contours for this GlyphBuf. The Hinter is optional; if non-nil, then
-// the resulting glyph will be hinted by the Font's bytecode instructions.
+// loaded contours for this GlyphBuf. scale is the number of 26.6 fixed point
+// units in 1 em. The Hinter is optional; if non-nil, then the resulting glyph
+// will be hinted by the Font's bytecode instructions.
 func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	// Reset the GlyphBuf.
 	g.B = Bounds{}

@@ -26,22 +26,22 @@ const (
 	opGFV       = 0x0d // Get Freedom Vector
 	opSFVTPV    = 0x0e // Set Freedom Vector To Projection Vector
 	opISECT     = 0x0f
-	opSRP0      = 0x10
-	opSRP1      = 0x11
-	opSRP2      = 0x12
-	opSZP0      = 0x13
-	opSZP1      = 0x14
-	opSZP2      = 0x15
-	opSZPS      = 0x16
+	opSRP0      = 0x10 // Set Reference Point 0
+	opSRP1      = 0x11 // Set Reference Point 1
+	opSRP2      = 0x12 // Set Reference Point 2
+	opSZP0      = 0x13 // Set Zone Pointer 0
+	opSZP1      = 0x14 // Set Zone Pointer 1
+	opSZP2      = 0x15 // Set Zone Pointer 2
+	opSZPS      = 0x16 // Set Zone PointerS
 	opSLOOP     = 0x17 // Set LOOP variable
 	opRTG       = 0x18 // Round To Grid
 	opRTHG      = 0x19 // Round To Half Grid
 	opSMD       = 0x1a // Set Minimum Distance
 	opELSE      = 0x1b // ELSE clause
 	opJMPR      = 0x1c // JuMP Relative
-	opSCVTCI    = 0x1d
-	opSSWCI     = 0x1e
-	opSSW       = 0x1f
+	opSCVTCI    = 0x1d // Set Control Value Table Cut-In
+	opSSWCI     = 0x1e // Set Single Width Cut-In
+	opSSW       = 0x1f // Set Single Width
 	opDUP       = 0x20 // DUPlicate top stack element
 	opPOP       = 0x21 // POP top stack element
 	opCLEAR     = 0x22 // CLEAR the stack
@@ -85,10 +85,10 @@ const (
 	opSCFS      = 0x48
 	opMD0       = 0x49
 	opMD1       = 0x4a
-	opMPPEM     = 0x4b
-	opMPS       = 0x4c
-	opFLIPON    = 0x4d
-	opFLIPOFF   = 0x4e
+	opMPPEM     = 0x4b // Measure Pixels Per EM
+	opMPS       = 0x4c // Measure Point Size
+	opFLIPON    = 0x4d // set the auto FLIP Boolean to ON
+	opFLIPOFF   = 0x4e // set the auto FLIP Boolean to OFF
 	opDEBUG     = 0x4f // DEBUG call
 	opLT        = 0x50 // Less Than
 	opLTEQ      = 0x51 // Less Than or EQual
@@ -104,8 +104,8 @@ const (
 	opOR        = 0x5b // logical OR
 	opNOT       = 0x5c // logical NOT
 	opDELTAP1   = 0x5d
-	opSDB       = 0x5e
-	opSDS       = 0x5f
+	opSDB       = 0x5e // Set Delta Base in the graphics state
+	opSDS       = 0x5f // Set Delta Shift in the graphics state
 	opADD       = 0x60 // ADD
 	opSUB       = 0x61 // SUBtract
 	opDIV       = 0x62 // DIVide
@@ -143,15 +143,15 @@ const (
 	opFLIPRGOFF = 0x82
 	op_0x83     = 0x83
 	op_0x84     = 0x84
-	opSCANCTRL  = 0x85
+	opSCANCTRL  = 0x85 // SCAN conversion ConTRoL
 	opSDPVTL0   = 0x86
 	opSDPVTL1   = 0x87
-	opGETINFO   = 0x88
+	opGETINFO   = 0x88 // GET INFOrmation
 	opIDEF      = 0x89 // Instruction DEFinition
 	opROLL      = 0x8a // ROLL the top three stack elements
 	opMAX       = 0x8b // MAXimum of top two stack elements
 	opMIN       = 0x8c // MINimum of top two stack elements
-	opSCANTYPE  = 0x8d
+	opSCANTYPE  = 0x8d // SCANTYPE
 	opINSTCTRL  = 0x8e
 	op_0x8f     = 0x8f
 	op_0x90     = 0x90
@@ -272,14 +272,14 @@ const (
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	0, 0, 0, 0, 0, 0, q, q, q, q, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
-	q, q, q, q, q, q, q, 1, 0, 0, 1, 0, 1, q, q, q, // 0x10 - 0x1f
+	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, q, q, // 0x20 - 0x2f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, 0, q, q, // 0x30 - 0x3f
-	0, 0, 2, 1, q, q, q, q, q, q, q, q, q, q, q, 0, // 0x40 - 0x4f
-	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, q, q, // 0x50 - 0x5f
+	0, 0, 2, 1, q, q, q, q, q, q, q, 0, 0, 0, 0, 0, // 0x40 - 0x4f
+	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
 	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
-	q, q, q, q, q, q, q, q, q, 1, 3, 2, 2, q, q, q, // 0x80 - 0x8f
+	q, q, q, q, q, 1, q, q, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf
