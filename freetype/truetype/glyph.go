@@ -113,17 +113,13 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	g.B = Bounds{}
 	g.Point = g.Point[:0]
 	g.End = g.End[:0]
-	if err := g.load(f, i, 0); err != nil {
+	if err := g.load(f, scale, i, 0, 0, false, 0); err != nil {
 		return err
 	}
 	g.B.XMin = f.scale(scale * g.B.XMin)
 	g.B.YMin = f.scale(scale * g.B.YMin)
 	g.B.XMax = f.scale(scale * g.B.XMax)
 	g.B.YMax = f.scale(scale * g.B.YMax)
-	for i := range g.Point {
-		g.Point[i].X = f.scale(scale * g.Point[i].X)
-		g.Point[i].Y = f.scale(scale * g.Point[i].Y)
-	}
 	if h != nil {
 		if err := h.init(f, scale); err != nil {
 			return err
@@ -134,7 +130,9 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 }
 
 // loadCompound loads a glyph that is composed of other glyphs.
-func (g *GlyphBuf) loadCompound(f *Font, glyf []byte, offset, recursion int) error {
+func (g *GlyphBuf) loadCompound(f *Font, scale int32, glyf []byte, offset int,
+	dx, dy int32, recursion int) error {
+
 	// Flags for decoding a compound glyph. These flags are documented at
 	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
 	const (
@@ -153,14 +151,14 @@ func (g *GlyphBuf) loadCompound(f *Font, glyf []byte, offset, recursion int) err
 	for {
 		flags := u16(glyf, offset)
 		component := u16(glyf, offset+2)
-		var dx, dy int16
+		dx1, dy1 := dx, dy
 		if flags&flagArg1And2AreWords != 0 {
-			dx = int16(u16(glyf, offset+4))
-			dy = int16(u16(glyf, offset+6))
+			dx1 += int32(int16(u16(glyf, offset+4)))
+			dy1 += int32(int16(u16(glyf, offset+6)))
 			offset += 8
 		} else {
-			dx = int16(int8(glyf[offset+4]))
-			dy = int16(int8(glyf[offset+5]))
+			dx1 += int32(int16(int8(glyf[offset+4])))
+			dy1 += int32(int16(int8(glyf[offset+5])))
 			offset += 6
 		}
 		if flags&flagArgsAreXYValues == 0 {
@@ -169,12 +167,8 @@ func (g *GlyphBuf) loadCompound(f *Font, glyf []byte, offset, recursion int) err
 		if flags&(flagWeHaveAScale|flagWeHaveAnXAndYScale|flagWeHaveATwoByTwo) != 0 {
 			return UnsupportedError("compound glyph scale/transform")
 		}
-		b0, i0 := g.B, len(g.Point)
-		g.load(f, Index(component), recursion+1)
-		for i := i0; i < len(g.Point); i++ {
-			g.Point[i].X += int32(dx)
-			g.Point[i].Y += int32(dy)
-		}
+		b0 := g.B
+		g.load(f, scale, Index(component), dx1, dy1, flags&flagRoundXYToGrid != 0, recursion+1)
 		if flags&flagUseMyMetrics == 0 {
 			g.B = b0
 		}
@@ -186,7 +180,9 @@ func (g *GlyphBuf) loadCompound(f *Font, glyf []byte, offset, recursion int) err
 }
 
 // load appends a glyph's contours to this GlyphBuf.
-func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
+func (g *GlyphBuf) load(f *Font, scale int32, i Index,
+	dx, dy int32, roundDxDy bool, recursion int) error {
+
 	if recursion >= 4 {
 		return UnsupportedError("excessive compound glyph recursion")
 	}
@@ -211,7 +207,7 @@ func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	g.B.YMax = int32(int16(u16(glyf, 8)))
 	offset := 10
 	if ne == -1 {
-		return g.loadCompound(f, glyf, offset, recursion)
+		return g.loadCompound(f, scale, glyf, offset, dx, dy, recursion)
 	} else if ne < 0 {
 		// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
 		// "the values -2, -3, and so forth, are reserved for future use."
@@ -240,6 +236,19 @@ func (g *GlyphBuf) load(f *Font, i Index, recursion int) error {
 	}
 	offset = g.decodeFlags(glyf, offset, np0)
 	g.decodeCoords(glyf, offset, np0)
+	if roundDxDy {
+		dx = (f.scale(scale*dx) + 32) &^ 63
+		dy = (f.scale(scale*dy) + 32) &^ 63
+		for i := np0; i < np; i++ {
+			g.Point[i].X = dx + f.scale(scale*g.Point[i].X)
+			g.Point[i].Y = dy + f.scale(scale*g.Point[i].Y)
+		}
+	} else {
+		for i := np0; i < np; i++ {
+			g.Point[i].X = f.scale(scale * (g.Point[i].X + dx))
+			g.Point[i].Y = f.scale(scale * (g.Point[i].Y + dy))
+		}
+	}
 	return nil
 }
 

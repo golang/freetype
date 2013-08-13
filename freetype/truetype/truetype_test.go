@@ -6,8 +6,13 @@
 package truetype
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -67,4 +72,65 @@ func TestParse(t *testing.T) {
 	if got, want := fmt.Sprint(g0), fmt.Sprint(g1); got != want {
 		t.Errorf("GlyphBuf:\ngot  %v\nwant %v", got, want)
 	}
+}
+
+func testScaling(t *testing.T, filename string) {
+	b, err := ioutil.ReadFile("../../luxi-fonts/luxisr.ttf")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	font, err := Parse(b)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	f, err := os.Open("../../luxi-fonts/" + filename)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+
+	wants := [][]Point{}
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		text := scanner.Text()
+		if text == "" {
+			wants = append(wants, []Point{})
+			continue
+		}
+		ss := strings.Split(text, ",")
+		points := make([]Point, len(ss))
+		for i, s := range ss {
+			p := &points[i]
+			if _, err := fmt.Sscanf(s, "%d %d %d", &p.X, &p.Y, &p.Flags); err != nil {
+				t.Fatalf("Sscanf: %v", err)
+			}
+		}
+		wants = append(wants, points)
+	}
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		t.Fatalf("Scanner: %v", err)
+	}
+
+	const fontSize = 12
+	glyphBuf := NewGlyphBuf()
+	for i, want := range wants {
+		if err = glyphBuf.Load(font, fontSize*64, Index(i), nil); err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		got := glyphBuf.Point
+		for i := range got {
+			got[i].Flags &= 0x01
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("glyph #%d:\ngot  %v\nwant %v\n", i, got, want)
+		}
+	}
+}
+
+func TestScalingSansHinting(t *testing.T) {
+	testScaling(t, "luxisr-12pt-sans-hinting.txt")
+}
+
+func TestScalingWithHinting(t *testing.T) {
+	// TODO.
 }

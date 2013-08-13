@@ -9,3 +9,5 @@ The *.ttx files in this directory were generated from the *.ttf files
 by the ttx command-line tool.
 http://www.letterror.com/code/ttx/index.html
 
+The *-hinting.txt files in this directory were generated from the *.ttf files
+by the ../cmd/print-glyph-points command-line tool.
