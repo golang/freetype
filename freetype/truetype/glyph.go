@@ -19,8 +19,13 @@ type Point struct {
 type GlyphBuf struct {
 	// The glyph's bounding box.
 	B Bounds
-	// Point contains all Points from all contours of the glyph.
-	Point []Point
+	// Point contains all Points from all contours of the glyph. If a
+	// Hinter was used to load a glyph then Unhinted contains those
+	// Points before they were hinted, and InFontUnits contains those
+	// Points before they were hinted and scaled. Twilight is those
+	// Points created in the 'twilight zone' by the truetype hinting
+	// process.
+	Point, Unhinted, InFontUnits, Twilight []Point
 	// The length of End is the number of contours in the glyph. The i'th
 	// contour consists of points Point[End[i-1]:End[i]], where End[-1]
 	// is interpreted to mean zero.
@@ -36,6 +41,10 @@ const (
 	flagRepeat
 	flagPositiveXShortVector
 	flagPositiveYShortVector
+
+	// The remaining flags are for internal use.
+	flagTouchedX
+	flagTouchedY
 )
 
 // The same flag bits (0x10 and 0x20) are overloaded to have two meanings,
@@ -112,25 +121,27 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	// Reset the GlyphBuf.
 	g.B = Bounds{}
 	g.Point = g.Point[:0]
+	g.Unhinted = g.Unhinted[:0]
+	g.InFontUnits = g.InFontUnits[:0]
+	g.Twilight = g.Twilight[:0]
 	g.End = g.End[:0]
-	if err := g.load(f, scale, i, 0, 0, false, 0); err != nil {
+	if h != nil {
+		if err := h.init(g, f, scale); err != nil {
+			return err
+		}
+	}
+	if err := g.load(f, scale, i, h, 0, 0, false, 0); err != nil {
 		return err
 	}
 	g.B.XMin = f.scale(scale * g.B.XMin)
 	g.B.YMin = f.scale(scale * g.B.YMin)
 	g.B.XMax = f.scale(scale * g.B.XMax)
 	g.B.YMax = f.scale(scale * g.B.YMax)
-	if h != nil {
-		if err := h.init(f, scale); err != nil {
-			return err
-		}
-		// TODO: invoke h.
-	}
 	return nil
 }
 
 // loadCompound loads a glyph that is composed of other glyphs.
-func (g *GlyphBuf) loadCompound(f *Font, scale int32, glyf []byte, offset int,
+func (g *GlyphBuf) loadCompound(f *Font, scale int32, h *Hinter, glyf []byte, offset int,
 	dx, dy int32, recursion int) error {
 
 	// Flags for decoding a compound glyph. These flags are documented at
@@ -150,7 +161,7 @@ func (g *GlyphBuf) loadCompound(f *Font, scale int32, glyf []byte, offset int,
 	)
 	for {
 		flags := u16(glyf, offset)
-		component := u16(glyf, offset+2)
+		component := Index(u16(glyf, offset+2))
 		dx1, dy1 := dx, dy
 		if flags&flagArg1And2AreWords != 0 {
 			dx1 += int32(int16(u16(glyf, offset+4)))
@@ -168,7 +179,7 @@ func (g *GlyphBuf) loadCompound(f *Font, scale int32, glyf []byte, offset int,
 			return UnsupportedError("compound glyph scale/transform")
 		}
 		b0 := g.B
-		g.load(f, scale, Index(component), dx1, dy1, flags&flagRoundXYToGrid != 0, recursion+1)
+		g.load(f, scale, component, h, dx1, dy1, flags&flagRoundXYToGrid != 0, recursion+1)
 		if flags&flagUseMyMetrics == 0 {
 			g.B = b0
 		}
@@ -180,7 +191,7 @@ func (g *GlyphBuf) loadCompound(f *Font, scale int32, glyf []byte, offset int,
 }
 
 // load appends a glyph's contours to this GlyphBuf.
-func (g *GlyphBuf) load(f *Font, scale int32, i Index,
+func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 	dx, dy int32, roundDxDy bool, recursion int) error {
 
 	if recursion >= 4 {
@@ -207,7 +218,7 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index,
 	g.B.YMax = int32(int16(u16(glyf, 8)))
 	offset := 10
 	if ne == -1 {
-		return g.loadCompound(f, scale, glyf, offset, dx, dy, recursion)
+		return g.loadCompound(f, scale, h, glyf, offset, dx, dy, recursion)
 	} else if ne < 0 {
 		// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
 		// "the values -2, -3, and so forth, are reserved for future use."
@@ -224,18 +235,33 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index,
 		g.End[i] = 1 + np0 + int(u16(glyf, offset))
 		offset += 2
 	}
-	// Skip the TrueType hinting instructions.
+
+	// Note the TrueType hinting instructions.
 	instrLen := int(u16(glyf, offset))
-	offset += 2 + instrLen
+	offset += 2
+	program := glyf[offset : offset+instrLen]
+	offset += instrLen
+
 	// Decode the points.
 	np := int(g.End[ne-1])
 	if np <= cap(g.Point) {
 		g.Point = g.Point[:np]
 	} else {
+		p := g.Point
 		g.Point = make([]Point, np, np*2)
+		copy(g.Point, p)
 	}
 	offset = g.decodeFlags(glyf, offset, np0)
 	g.decodeCoords(glyf, offset, np0)
+
+	// Delta-adjust, scale and hint.
+	if h != nil {
+		g.InFontUnits = append(g.InFontUnits, g.Point[np0:np]...)
+		for i := np0; i < np; i++ {
+			g.InFontUnits[i].X += dx
+			g.InFontUnits[i].Y += dy
+		}
+	}
 	if roundDxDy {
 		dx = (f.scale(scale*dx) + 32) &^ 63
 		dy = (f.scale(scale*dy) + 32) &^ 63
@@ -249,7 +275,21 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index,
 			g.Point[i].Y = f.scale(scale * (g.Point[i].Y + dy))
 		}
 	}
+	if h != nil {
+		g.Unhinted = append(g.Unhinted, g.Point[np0:np]...)
+		if err := h.run(program); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (g *GlyphBuf) points(zonePointer int32) []Point {
+	if zonePointer == 0 {
+		return g.Twilight
+	}
+	return g.Point
 }
 
 // NewGlyphBuf returns a newly allocated GlyphBuf.

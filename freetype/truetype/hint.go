@@ -28,9 +28,11 @@ type Hinter struct {
 	// functions is a map from function number to bytecode.
 	functions map[int32][]byte
 
-	// font and scale are the font and scale last used for this Hinter.
-	// Changing the font will require running the new font's fpgm bytecode.
-	// Changing either will require running the font's prep bytecode.
+	// g, font and scale are the glyph buffer, font and scale last used for
+	// this Hinter. Changing the font will require running the new font's
+	// fpgm bytecode. Changing either will require running the font's prep
+	// bytecode.
+	g     *GlyphBuf
 	font  *Font
 	scale int32
 
@@ -75,7 +77,9 @@ var globalDefaultGS = graphicsState{
 	autoFlip:          true,
 }
 
-func (h *Hinter) init(f *Font, scale int32) error {
+func (h *Hinter) init(g *GlyphBuf, f *Font, scale int32) error {
+	h.g = g
+
 	rescale := h.scale != scale
 	if h.font != f {
 		h.font, rescale = f, true
@@ -158,20 +162,20 @@ func (h *Hinter) run(program []byte) error {
 		case opSVTCA0:
 			h.gs.pv = [2]f2dot14{0, 0x4000}
 			h.gs.fv = [2]f2dot14{0, 0x4000}
-			// TODO: h.gs.dv = h.gs.pv ??
+			h.gs.dv = [2]f2dot14{0, 0x4000}
 
 		case opSVTCA1:
 			h.gs.pv = [2]f2dot14{0x4000, 0}
 			h.gs.fv = [2]f2dot14{0x4000, 0}
-			// TODO: h.gs.dv = h.gs.pv ??
+			h.gs.dv = [2]f2dot14{0x4000, 0}
 
 		case opSPVTCA0:
 			h.gs.pv = [2]f2dot14{0, 0x4000}
-			// TODO: h.gs.dv = h.gs.pv ??
+			h.gs.dv = [2]f2dot14{0, 0x4000}
 
 		case opSPVTCA1:
 			h.gs.pv = [2]f2dot14{0x4000, 0}
-			// TODO: h.gs.dv = h.gs.pv ??
+			h.gs.dv = [2]f2dot14{0x4000, 0}
 
 		case opSFVTCA0:
 			h.gs.fv = [2]f2dot14{0, 0x4000}
@@ -359,6 +363,45 @@ func (h *Hinter) run(program []byte) error {
 				continue
 			}
 			program, pc = callStack[callStackTop].program, callStack[callStackTop].pc
+
+		case opMDAP0, opMDAP1:
+			points := h.g.points(h.gs.zp[0])
+			top--
+			i := int(h.stack[top])
+			if i < 0 || len(points) <= i {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			p := &points[i]
+			distance := f26dot6(0)
+			if opcode == opMDAP1 {
+				distance = dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
+				// TODO: metrics compensation.
+				distance = h.round(distance) - distance
+			}
+			h.move(p, distance)
+			h.gs.rp[0] = int32(i)
+			h.gs.rp[1] = int32(i)
+
+		case opALIGNRP:
+			if top < int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
+			}
+			i, points := int(h.gs.rp[0]), h.g.points(h.gs.zp[0])
+			if i < 0 || len(points) <= i {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			ref := &points[i]
+			points = h.g.points(h.gs.zp[1])
+			for ; h.gs.loop != 0; h.gs.loop-- {
+				top--
+				i = int(h.stack[top])
+				if i < 0 || len(points) <= i {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				p := &points[i]
+				h.move(p, -dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv))
+			}
+			h.gs.loop = 1
 
 		case opRTDG:
 			h.gs.roundPeriod = 1 << 5
@@ -617,6 +660,80 @@ func (h *Hinter) run(program []byte) error {
 			opcode += 0x80
 			goto push
 
+		case opMDRP00000, opMDRP00001, opMDRP00010, opMDRP00011,
+			opMDRP00100, opMDRP00101, opMDRP00110, opMDRP00111,
+			opMDRP01000, opMDRP01001, opMDRP01010, opMDRP01011,
+			opMDRP01100, opMDRP01101, opMDRP01110, opMDRP01111,
+			opMDRP10000, opMDRP10001, opMDRP10010, opMDRP10011,
+			opMDRP10100, opMDRP10101, opMDRP10110, opMDRP10111,
+			opMDRP11000, opMDRP11001, opMDRP11010, opMDRP11011,
+			opMDRP11100, opMDRP11101, opMDRP11110, opMDRP11111:
+
+			i, points := int(h.gs.rp[0]), h.g.points(h.gs.zp[0])
+			if i < 0 || len(points) <= i {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			ref := &points[i]
+			top--
+			i = int(h.stack[top])
+			points = h.g.points(h.gs.zp[1])
+			if i < 0 || len(points) <= i {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			p := &points[i]
+
+			origDist := f26dot6(0)
+			if h.gs.zp[0] == 0 && h.gs.zp[1] == 0 {
+				p0 := &h.g.Unhinted[i]
+				p1 := &h.g.Unhinted[h.gs.rp[0]]
+				origDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+			} else {
+				p0 := &h.g.InFontUnits[i]
+				p1 := &h.g.InFontUnits[h.gs.rp[0]]
+				origDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+				origDist = f26dot6(h.font.scale(h.scale * int32(origDist)))
+			}
+
+			// Single-width cut-in test.
+			if x := (origDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
+				if origDist >= 0 {
+					origDist = h.gs.singleWidthCutIn
+				} else {
+					origDist = -h.gs.singleWidthCutIn
+				}
+			}
+
+			// Rounding bit.
+			// TODO: metrics compensation.
+			distance := origDist
+			if opcode&0x04 != 0 {
+				distance = h.round(origDist)
+			}
+
+			// Minimum distance bit.
+			if opcode&0x08 != 0 {
+				if origDist >= 0 {
+					if distance < h.gs.minDist {
+						distance = h.gs.minDist
+					}
+				} else {
+					if distance > -h.gs.minDist {
+						distance = -h.gs.minDist
+					}
+				}
+			}
+
+			// Set-RP0 bit.
+			if opcode&0x10 != 0 {
+				h.gs.rp[0] = int32(i)
+			}
+			h.gs.rp[1] = h.gs.rp[0]
+			h.gs.rp[2] = int32(i)
+
+			// Move the point.
+			origDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+			h.move(p, distance-origDist)
+
 		default:
 			return errors.New("truetype: hinting: unrecognized instruction")
 		}
@@ -698,6 +815,27 @@ func (h *Hinter) run(program []byte) error {
 	return nil
 }
 
+func (h *Hinter) move(p *Point, distance f26dot6) {
+	if h.gs.fv[0] == 0 {
+		p.Y += int32(distance)
+		p.Flags |= flagTouchedY
+		return
+	}
+	if h.gs.fv[1] == 0 {
+		p.X += int32(distance)
+		p.Flags |= flagTouchedX
+		return
+	}
+	fvx := int64(h.gs.fv[0])
+	fvy := int64(h.gs.fv[1])
+	pvx := int64(h.gs.pv[0])
+	pvy := int64(h.gs.pv[1])
+	fvDotPv := (fvx*pvx + fvy*pvy) >> 14
+	p.X += int32(int64(distance) * fvx / fvDotPv)
+	p.Y += int32(int64(distance) * fvy / fvDotPv)
+	p.Flags |= flagTouchedX | flagTouchedY
+}
+
 // skipInstructionPayload increments pc by the extra data that follows a
 // variable length PUSHB or PUSHW instruction.
 func skipInstructionPayload(program []byte, pc int) (newPC int, ok bool) {
@@ -730,6 +868,14 @@ type f2dot14 int16
 // f26dot6 is a 26.6 fixed point number.
 type f26dot6 int32
 
+// abs returns abs(x) in 26.6 fixed point arithmetic.
+func (x f26dot6) abs() f26dot6 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 // div returns x/y in 26.6 fixed point arithmetic.
 func (x f26dot6) div(y f26dot6) f26dot6 {
 	return f26dot6((int64(x) << 6) / int64(y))
@@ -738,6 +884,14 @@ func (x f26dot6) div(y f26dot6) f26dot6 {
 // mul returns x*y in 26.6 fixed point arithmetic.
 func (x f26dot6) mul(y f26dot6) f26dot6 {
 	return f26dot6(int64(x) * int64(y) >> 6)
+}
+
+func dotProduct(x, y f26dot6, q [2]f2dot14) f26dot6 {
+	px := int64(x)
+	py := int64(y)
+	qx := int64(q[0])
+	qy := int64(q[1])
+	return f26dot6((px*qx + py*qy) >> 14)
 }
 
 // round rounds the given number. The rounding algorithm is described at

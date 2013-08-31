@@ -56,8 +56,8 @@ const (
 	opCALL      = 0x2b // CALL function
 	opFDEF      = 0x2c // Function DEFinition
 	opENDF      = 0x2d // END Function definition
-	opMDAP0     = 0x2e
-	opMDAP1     = 0x2f
+	opMDAP0     = 0x2e // Move Direct Absolute Point
+	opMDAP1     = 0x2f // .
 	opIUP0      = 0x30
 	opIUP1      = 0x31
 	opSHP0      = 0x32
@@ -70,7 +70,7 @@ const (
 	opIP        = 0x39
 	opMSIRP0    = 0x3a
 	opMSIRP1    = 0x3b
-	opALIGNRP   = 0x3c
+	opALIGNRP   = 0x3c // ALIGN to Reference Point
 	opRTDG      = 0x3d // Round To Double Grid
 	opMIAP0     = 0x3e
 	opMIAP1     = 0x3f
@@ -202,38 +202,38 @@ const (
 	opPUSHW101  = 0xbd // .
 	opPUSHW110  = 0xbe // .
 	opPUSHW111  = 0xbf // .
-	opMDRP00000 = 0xc0
-	opMDRP00001 = 0xc1
-	opMDRP00010 = 0xc2
-	opMDRP00011 = 0xc3
-	opMDRP00100 = 0xc4
-	opMDRP00101 = 0xc5
-	opMDRP00110 = 0xc6
-	opMDRP00111 = 0xc7
-	opMDRP01000 = 0xc8
-	opMDRP01001 = 0xc9
-	opMDRP01010 = 0xca
-	opMDRP01011 = 0xcb
-	opMDRP01100 = 0xcc
-	opMDRP01101 = 0xcd
-	opMDRP01110 = 0xce
-	opMDRP01111 = 0xcf
-	opMDRP10000 = 0xd0
-	opMDRP10001 = 0xd1
-	opMDRP10010 = 0xd2
-	opMDRP10011 = 0xd3
-	opMDRP10100 = 0xd4
-	opMDRP10101 = 0xd5
-	opMDRP10110 = 0xd6
-	opMDRP10111 = 0xd7
-	opMDRP11000 = 0xd8
-	opMDRP11001 = 0xd9
-	opMDRP11010 = 0xda
-	opMDRP11011 = 0xdb
-	opMDRP11100 = 0xdd
-	opMDRP11101 = 0xdc
-	opMDRP11110 = 0xde
-	opMDRP11111 = 0xdf
+	opMDRP00000 = 0xc0 // Move Direct Relative Point
+	opMDRP00001 = 0xc1 // .
+	opMDRP00010 = 0xc2 // .
+	opMDRP00011 = 0xc3 // .
+	opMDRP00100 = 0xc4 // .
+	opMDRP00101 = 0xc5 // .
+	opMDRP00110 = 0xc6 // .
+	opMDRP00111 = 0xc7 // .
+	opMDRP01000 = 0xc8 // .
+	opMDRP01001 = 0xc9 // .
+	opMDRP01010 = 0xca // .
+	opMDRP01011 = 0xcb // .
+	opMDRP01100 = 0xcc // .
+	opMDRP01101 = 0xcd // .
+	opMDRP01110 = 0xce // .
+	opMDRP01111 = 0xcf // .
+	opMDRP10000 = 0xd0 // .
+	opMDRP10001 = 0xd1 // .
+	opMDRP10010 = 0xd2 // .
+	opMDRP10011 = 0xd3 // .
+	opMDRP10100 = 0xd4 // .
+	opMDRP10101 = 0xd5 // .
+	opMDRP10110 = 0xd6 // .
+	opMDRP10111 = 0xd7 // .
+	opMDRP11000 = 0xd8 // .
+	opMDRP11001 = 0xd9 // .
+	opMDRP11010 = 0xda // .
+	opMDRP11011 = 0xdb // .
+	opMDRP11100 = 0xdc // .
+	opMDRP11101 = 0xdd // .
+	opMDRP11110 = 0xde // .
+	opMDRP11111 = 0xdf // .
 	opMIRP00000 = 0xe0
 	opMIRP00001 = 0xe1
 	opMIRP00010 = 0xe2
@@ -262,8 +262,8 @@ const (
 	opMIRP11001 = 0xf9
 	opMIRP11010 = 0xfa
 	opMIRP11011 = 0xfb
-	opMIRP11100 = 0xfd
-	opMIRP11101 = 0xfc
+	opMIRP11100 = 0xfc
+	opMIRP11101 = 0xfd
 	opMIRP11110 = 0xfe
 	opMIRP11111 = 0xff
 )
@@ -273,8 +273,8 @@ var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	0, 0, 0, 0, 0, 0, q, q, q, q, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
-	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, q, q, // 0x20 - 0x2f
-	q, q, q, q, q, q, q, q, q, q, q, q, q, 0, q, q, // 0x30 - 0x3f
+	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
+	q, q, q, q, q, q, q, q, q, q, q, q, 0, 0, q, q, // 0x30 - 0x3f
 	0, 0, 2, 1, q, q, q, q, q, q, q, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
@@ -283,8 +283,8 @@ var popCount = [256]uint8{
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xc0 - 0xcf
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xd0 - 0xdf
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xc0 - 0xcf
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xd0 - 0xdf
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xe0 - 0xef
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xf0 - 0xff
 }

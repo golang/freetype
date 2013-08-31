@@ -553,9 +553,10 @@ func TestBytecode(t *testing.T) {
 		},
 	}
 
+	var g GlyphBuf
 	for _, tc := range testCases {
 		h := &Hinter{}
-		h.init(&Font{
+		h.init(&g, &Font{
 			maxStorage:       32,
 			maxStackElements: 100,
 		}, 768)

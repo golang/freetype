@@ -74,7 +74,7 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func testScaling(t *testing.T, filename string) {
+func testScaling(t *testing.T, filename string, hinter *Hinter) {
 	b, err := ioutil.ReadFile("../../luxi-fonts/luxisr.ttf")
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -114,7 +114,14 @@ func testScaling(t *testing.T, filename string) {
 	const fontSize = 12
 	glyphBuf := NewGlyphBuf()
 	for i, want := range wants {
-		if err = glyphBuf.Load(font, fontSize*64, Index(i), nil); err != nil {
+		// TODO: completely implement hinting. For now, only the first N glyphs
+		// of luxisr.ttf are correctly hinted.
+		const N = 1
+		if hinter != nil && i == N {
+			break
+		}
+
+		if err = glyphBuf.Load(font, fontSize*64, Index(i), hinter); err != nil {
 			t.Fatalf("Load: %v", err)
 		}
 		got := glyphBuf.Point
@@ -128,9 +135,9 @@ func testScaling(t *testing.T, filename string) {
 }
 
 func TestScalingSansHinting(t *testing.T) {
-	testScaling(t, "luxisr-12pt-sans-hinting.txt")
+	testScaling(t, "luxisr-12pt-sans-hinting.txt", nil)
 }
 
 func TestScalingWithHinting(t *testing.T) {
-	// TODO.
+	testScaling(t, "luxisr-12pt-with-hinting.txt", &Hinter{})
 }
