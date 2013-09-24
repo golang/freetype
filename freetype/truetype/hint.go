@@ -40,6 +40,9 @@ type Hinter struct {
 	// default graphics state is the global default graphics state after
 	// the font's fpgm and prep programs have been run.
 	gs, defaultGS graphicsState
+
+	// twilightXxx are points created in the twilight zone.
+	twilightPoint, twilightUnhinted, twilightInFontUnits []Point
 }
 
 // graphicsState is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
@@ -77,8 +80,25 @@ var globalDefaultGS = graphicsState{
 	autoFlip:          true,
 }
 
+func resetTwilightPoints(f *Font, p []Point) []Point {
+	// TODO: the C Freetype code uses n+4 for the 4 phantom points, but a
+	// comment there says "(do we need this?)". Do we need to use n+4 here?
+	if n := int(f.maxTwilightPoints); n <= cap(p) {
+		p = p[:n]
+		for i := range p {
+			p[i] = Point{}
+		}
+	} else {
+		p = make([]Point, n)
+	}
+	return p
+}
+
 func (h *Hinter) init(g *GlyphBuf, f *Font, scale int32) error {
 	h.g = g
+	h.twilightPoint = resetTwilightPoints(f, h.twilightPoint)
+	h.twilightUnhinted = resetTwilightPoints(f, h.twilightUnhinted)
+	h.twilightInFontUnits = resetTwilightPoints(f, h.twilightInFontUnits)
 
 	rescale := h.scale != scale
 	if h.font != f {
@@ -365,13 +385,12 @@ func (h *Hinter) run(program []byte) error {
 			program, pc = callStack[callStackTop].program, callStack[callStackTop].pc
 
 		case opMDAP0, opMDAP1:
-			points := h.g.points(h.gs.zp[0])
 			top--
-			i := int(h.stack[top])
-			if i < 0 || len(points) <= i {
+			i := h.stack[top]
+			p := h.point(0, current, i)
+			if p == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			p := &points[i]
 			distance := f26dot6(0)
 			if opcode == opMDAP1 {
 				distance = dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
@@ -379,23 +398,73 @@ func (h *Hinter) run(program []byte) error {
 				distance = h.round(distance) - distance
 			}
 			h.move(p, distance)
-			h.gs.rp[0] = int32(i)
-			h.gs.rp[1] = int32(i)
+			h.gs.rp[0] = i
+			h.gs.rp[1] = i
+
+		case opIUP0, opIUP1:
+			// TODO: implement IUP.
+			// Glyph 4 in luxisr.ttf (the '!' glyph) has IUP instructions but
+			// they have no effect since none of the points are untouched.
+			// The IUP ops will be implemented when the N in truetype_test.go
+			// is raised above 5.
+			const mask = flagTouchedX | flagTouchedY
+			for _, p := range h.g.Point {
+				if p.Flags&mask != mask {
+					return errors.New("truetype: hinting: unimplemented IUP instruction")
+				}
+			}
+
+		case opIP:
+			if top < int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
+			}
+			pointType := inFontUnits
+			twilight := h.gs.zp[0] == 0 || h.gs.zp[1] == 0 || h.gs.zp[2] == 0
+			if twilight {
+				pointType = unhinted
+			}
+			p := h.point(1, pointType, h.gs.rp[2])
+			oldP := h.point(0, pointType, h.gs.rp[1])
+			oldRange := dotProduct(f26dot6(p.X-oldP.X), f26dot6(p.Y-oldP.Y), h.gs.dv)
+
+			p = h.point(1, current, h.gs.rp[2])
+			curP := h.point(0, current, h.gs.rp[1])
+			curRange := dotProduct(f26dot6(p.X-curP.X), f26dot6(p.Y-curP.Y), h.gs.pv)
+
+			for ; h.gs.loop != 0; h.gs.loop-- {
+				top--
+				i := h.stack[top]
+				p = h.point(2, pointType, i)
+				oldDist := dotProduct(f26dot6(p.X-oldP.X), f26dot6(p.Y-oldP.Y), h.gs.dv)
+				p = h.point(2, current, i)
+				curDist := dotProduct(f26dot6(p.X-curP.X), f26dot6(p.Y-curP.Y), h.gs.pv)
+				newDist := f26dot6(0)
+				if oldDist != 0 {
+					if oldRange != 0 {
+						newDist = f26dot6(
+							(int64(oldDist)*int64(curRange) + int64(oldRange/2)) / int64(oldRange))
+					} else {
+						newDist = -oldDist
+					}
+				}
+				h.move(p, newDist-curDist)
+			}
+			h.gs.loop = 1
 
 		case opALIGNRP:
 			if top < int(h.gs.loop) {
 				return errors.New("truetype: hinting: stack underflow")
 			}
-			i, points := int(h.gs.rp[0]), h.g.points(h.gs.zp[0])
-			if i < 0 || len(points) <= i {
+			i := h.gs.rp[0]
+			ref := h.point(0, current, i)
+			if ref == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			ref := &points[i]
-			points = h.g.points(h.gs.zp[1])
+			points := h.points(1, current)
 			for ; h.gs.loop != 0; h.gs.loop-- {
 				top--
-				i = int(h.stack[top])
-				if i < 0 || len(points) <= i {
+				i = h.stack[top]
+				if i < 0 || len(points) <= int(i) {
 					return errors.New("truetype: hinting: point out of range")
 				}
 				p := &points[i]
@@ -407,6 +476,30 @@ func (h *Hinter) run(program []byte) error {
 			h.gs.roundPeriod = 1 << 5
 			h.gs.roundPhase = 0
 			h.gs.roundThreshold = 1 << 4
+
+		case opMIAP0, opMIAP1:
+			top -= 2
+			i := h.stack[top]
+			distance := h.cvt(h.stack[top+1])
+			if h.gs.zp[0] == 0 {
+				p := h.point(0, unhinted, i)
+				q := h.point(0, current, i)
+				p.X = int32((int64(distance) * int64(h.gs.fv[0])) >> 14)
+				p.Y = int32((int64(distance) * int64(h.gs.fv[1])) >> 14)
+				*q = *p
+			}
+			p := h.point(0, current, i)
+			oldDist := dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
+			if opcode == opMIAP1 {
+				if (distance - oldDist).abs() > h.gs.controlValueCutIn {
+					distance = oldDist
+				}
+				// TODO: metrics compensation.
+				distance = h.round(distance)
+			}
+			h.move(p, distance-oldDist)
+			h.gs.rp[0] = i
+			h.gs.rp[1] = i
 
 		case opNPUSHB:
 			opcode = 0
@@ -669,50 +762,45 @@ func (h *Hinter) run(program []byte) error {
 			opMDRP11000, opMDRP11001, opMDRP11010, opMDRP11011,
 			opMDRP11100, opMDRP11101, opMDRP11110, opMDRP11111:
 
-			i, points := int(h.gs.rp[0]), h.g.points(h.gs.zp[0])
-			if i < 0 || len(points) <= i {
-				return errors.New("truetype: hinting: point out of range")
-			}
-			ref := &points[i]
 			top--
-			i = int(h.stack[top])
-			points = h.g.points(h.gs.zp[1])
-			if i < 0 || len(points) <= i {
+			i := h.stack[top]
+			ref := h.point(0, current, h.gs.rp[0])
+			p := h.point(1, current, i)
+			if ref == nil || p == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			p := &points[i]
 
-			origDist := f26dot6(0)
-			if h.gs.zp[0] == 0 && h.gs.zp[1] == 0 {
-				p0 := &h.g.Unhinted[i]
-				p1 := &h.g.Unhinted[h.gs.rp[0]]
-				origDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+			oldDist := f26dot6(0)
+			if h.gs.zp[0] == 0 || h.gs.zp[1] == 0 {
+				p0 := h.point(1, unhinted, i)
+				p1 := h.point(0, unhinted, h.gs.rp[0])
+				oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
 			} else {
-				p0 := &h.g.InFontUnits[i]
-				p1 := &h.g.InFontUnits[h.gs.rp[0]]
-				origDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
-				origDist = f26dot6(h.font.scale(h.scale * int32(origDist)))
+				p0 := h.point(1, inFontUnits, i)
+				p1 := h.point(0, inFontUnits, h.gs.rp[0])
+				oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+				oldDist = f26dot6(h.font.scale(h.scale * int32(oldDist)))
 			}
 
 			// Single-width cut-in test.
-			if x := (origDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
-				if origDist >= 0 {
-					origDist = h.gs.singleWidthCutIn
+			if x := (oldDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
+				if oldDist >= 0 {
+					oldDist = h.gs.singleWidthCutIn
 				} else {
-					origDist = -h.gs.singleWidthCutIn
+					oldDist = -h.gs.singleWidthCutIn
 				}
 			}
 
 			// Rounding bit.
 			// TODO: metrics compensation.
-			distance := origDist
+			distance := oldDist
 			if opcode&0x04 != 0 {
-				distance = h.round(origDist)
+				distance = h.round(oldDist)
 			}
 
 			// Minimum distance bit.
 			if opcode&0x08 != 0 {
-				if origDist >= 0 {
+				if oldDist >= 0 {
 					if distance < h.gs.minDist {
 						distance = h.gs.minDist
 					}
@@ -725,14 +813,88 @@ func (h *Hinter) run(program []byte) error {
 
 			// Set-RP0 bit.
 			if opcode&0x10 != 0 {
-				h.gs.rp[0] = int32(i)
+				h.gs.rp[0] = i
 			}
 			h.gs.rp[1] = h.gs.rp[0]
-			h.gs.rp[2] = int32(i)
+			h.gs.rp[2] = i
 
 			// Move the point.
-			origDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
-			h.move(p, distance-origDist)
+			oldDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+			h.move(p, distance-oldDist)
+
+		case opMIRP00000, opMIRP00001, opMIRP00010, opMIRP00011,
+			opMIRP00100, opMIRP00101, opMIRP00110, opMIRP00111,
+			opMIRP01000, opMIRP01001, opMIRP01010, opMIRP01011,
+			opMIRP01100, opMIRP01101, opMIRP01110, opMIRP01111,
+			opMIRP10000, opMIRP10001, opMIRP10010, opMIRP10011,
+			opMIRP10100, opMIRP10101, opMIRP10110, opMIRP10111,
+			opMIRP11000, opMIRP11001, opMIRP11010, opMIRP11011,
+			opMIRP11100, opMIRP11101, opMIRP11110, opMIRP11111:
+
+			top -= 2
+			i := h.stack[top]
+			cvtDist := h.cvt(h.stack[top+1])
+			if (cvtDist - h.gs.singleWidth).abs() < h.gs.singleWidthCutIn {
+				if cvtDist >= 0 {
+					cvtDist = +h.gs.singleWidth
+				} else {
+					cvtDist = -h.gs.singleWidth
+				}
+			}
+
+			if h.gs.zp[1] == 0 {
+				// TODO: implement once we have a .ttf file that triggers
+				// this, so that we can step through C's freetype.
+				return errors.New("truetype: hinting: unimplemented twilight point adjustment")
+			}
+
+			ref := h.point(0, unhinted, h.gs.rp[0])
+			p := h.point(1, unhinted, i)
+			if ref == nil || p == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			oldDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
+
+			ref = h.point(0, current, h.gs.rp[0])
+			p = h.point(1, current, i)
+			if ref == nil || p == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
+
+			if h.gs.autoFlip && oldDist^cvtDist < 0 {
+				cvtDist = -cvtDist
+			}
+
+			// Rounding bit.
+			// TODO: metrics compensation.
+			distance := oldDist
+			if opcode&0x04 != 0 {
+				distance = h.round(oldDist)
+			}
+
+			// Minimum distance bit.
+			if opcode&0x08 != 0 {
+				if oldDist >= 0 {
+					if distance < h.gs.minDist {
+						distance = h.gs.minDist
+					}
+				} else {
+					if distance > -h.gs.minDist {
+						distance = -h.gs.minDist
+					}
+				}
+			}
+
+			// Set-RP0 bit.
+			if opcode&0x10 != 0 {
+				h.gs.rp[0] = i
+			}
+			h.gs.rp[1] = h.gs.rp[0]
+			h.gs.rp[2] = i
+
+			// Move the point.
+			h.move(p, distance-curDist)
 
 		default:
 			return errors.New("truetype: hinting: unrecognized instruction")
@@ -813,6 +975,51 @@ func (h *Hinter) run(program []byte) error {
 		}
 	}
 	return nil
+}
+
+// cvt returns the scaled value from the font's Control Value Table.
+func (h *Hinter) cvt(i int32) f26dot6 {
+	i *= 2
+	if i < 0 || len(h.font.cvt) < int(i) {
+		return 0
+	}
+	cv := uint16(h.font.cvt[i])<<8 | uint16(h.font.cvt[i+1])
+	return f26dot6(h.font.scale(h.scale * int32(int16(cv))))
+}
+
+type pointType uint32
+
+const (
+	current     pointType = 0
+	unhinted    pointType = 1
+	inFontUnits pointType = 2
+)
+
+func (h *Hinter) point(zone uint32, pt pointType, i int32) *Point {
+	points := h.points(zone, pt)
+	if i < 0 || len(points) <= int(i) {
+		return nil
+	}
+	return &points[i]
+}
+
+func (h *Hinter) points(zone uint32, pt pointType) []Point {
+	if h.gs.zp[zone] == 0 {
+		switch pt {
+		case unhinted:
+			return h.twilightUnhinted
+		case inFontUnits:
+			return h.twilightInFontUnits
+		}
+		return h.twilightPoint
+	}
+	switch pt {
+	case unhinted:
+		return h.g.Unhinted
+	case inFontUnits:
+		return h.g.InFontUnits
+	}
+	return h.g.Point
 }
 
 func (h *Hinter) move(p *Point, distance f26dot6) {

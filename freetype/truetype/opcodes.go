@@ -58,8 +58,8 @@ const (
 	opENDF      = 0x2d // END Function definition
 	opMDAP0     = 0x2e // Move Direct Absolute Point
 	opMDAP1     = 0x2f // .
-	opIUP0      = 0x30
-	opIUP1      = 0x31
+	opIUP0      = 0x30 // Interpolate Untouched Points through the outline
+	opIUP1      = 0x31 // .
 	opSHP0      = 0x32
 	opSHP1      = 0x33
 	opSHC0      = 0x34
@@ -67,13 +67,13 @@ const (
 	opSHZ0      = 0x36
 	opSHZ1      = 0x37
 	opSHPIX     = 0x38
-	opIP        = 0x39
+	opIP        = 0x39 // Interpolate Point
 	opMSIRP0    = 0x3a
 	opMSIRP1    = 0x3b
 	opALIGNRP   = 0x3c // ALIGN to Reference Point
 	opRTDG      = 0x3d // Round To Double Grid
-	opMIAP0     = 0x3e
-	opMIAP1     = 0x3f
+	opMIAP0     = 0x3e // Move Indirect Absolute Point
+	opMIAP1     = 0x3f // .
 	opNPUSHB    = 0x40 // PUSH N Bytes
 	opNPUSHW    = 0x41 // PUSH N Words
 	opWS        = 0x42 // Write Store
@@ -234,38 +234,38 @@ const (
 	opMDRP11101 = 0xdd // .
 	opMDRP11110 = 0xde // .
 	opMDRP11111 = 0xdf // .
-	opMIRP00000 = 0xe0
-	opMIRP00001 = 0xe1
-	opMIRP00010 = 0xe2
-	opMIRP00011 = 0xe3
-	opMIRP00100 = 0xe4
-	opMIRP00101 = 0xe5
-	opMIRP00110 = 0xe6
-	opMIRP00111 = 0xe7
-	opMIRP01000 = 0xe8
-	opMIRP01001 = 0xe9
-	opMIRP01010 = 0xea
-	opMIRP01011 = 0xeb
-	opMIRP01100 = 0xec
-	opMIRP01101 = 0xed
-	opMIRP01110 = 0xee
-	opMIRP01111 = 0xef
-	opMIRP10000 = 0xf0
-	opMIRP10001 = 0xf1
-	opMIRP10010 = 0xf2
-	opMIRP10011 = 0xf3
-	opMIRP10100 = 0xf4
-	opMIRP10101 = 0xf5
-	opMIRP10110 = 0xf6
-	opMIRP10111 = 0xf7
-	opMIRP11000 = 0xf8
-	opMIRP11001 = 0xf9
-	opMIRP11010 = 0xfa
-	opMIRP11011 = 0xfb
-	opMIRP11100 = 0xfc
-	opMIRP11101 = 0xfd
-	opMIRP11110 = 0xfe
-	opMIRP11111 = 0xff
+	opMIRP00000 = 0xe0 // Move Indirect Relative Point
+	opMIRP00001 = 0xe1 // .
+	opMIRP00010 = 0xe2 // .
+	opMIRP00011 = 0xe3 // .
+	opMIRP00100 = 0xe4 // .
+	opMIRP00101 = 0xe5 // .
+	opMIRP00110 = 0xe6 // .
+	opMIRP00111 = 0xe7 // .
+	opMIRP01000 = 0xe8 // .
+	opMIRP01001 = 0xe9 // .
+	opMIRP01010 = 0xea // .
+	opMIRP01011 = 0xeb // .
+	opMIRP01100 = 0xec // .
+	opMIRP01101 = 0xed // .
+	opMIRP01110 = 0xee // .
+	opMIRP01111 = 0xef // .
+	opMIRP10000 = 0xf0 // .
+	opMIRP10001 = 0xf1 // .
+	opMIRP10010 = 0xf2 // .
+	opMIRP10011 = 0xf3 // .
+	opMIRP10100 = 0xf4 // .
+	opMIRP10101 = 0xf5 // .
+	opMIRP10110 = 0xf6 // .
+	opMIRP10111 = 0xf7 // .
+	opMIRP11000 = 0xf8 // .
+	opMIRP11001 = 0xf9 // .
+	opMIRP11010 = 0xfa // .
+	opMIRP11011 = 0xfb // .
+	opMIRP11100 = 0xfc // .
+	opMIRP11101 = 0xfd // .
+	opMIRP11110 = 0xfe // .
+	opMIRP11111 = 0xff // .
 )
 
 // popCount is the number of stack elements that each opcode pops.
@@ -274,7 +274,7 @@ var popCount = [256]uint8{
 	0, 0, 0, 0, 0, 0, q, q, q, q, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
-	q, q, q, q, q, q, q, q, q, q, q, q, 0, 0, q, q, // 0x30 - 0x3f
+	0, 0, q, q, q, q, q, q, q, 0, q, q, 0, 0, 2, 2, // 0x30 - 0x3f
 	0, 0, 2, 1, q, q, q, q, q, q, q, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
@@ -285,8 +285,8 @@ var popCount = [256]uint8{
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xc0 - 0xcf
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xd0 - 0xdf
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xe0 - 0xef
-	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xf0 - 0xff
+	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0xe0 - 0xef
+	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0xf0 - 0xff
 }
 
 // popCount[opcode] == q means that that opcode is not yet implemented.

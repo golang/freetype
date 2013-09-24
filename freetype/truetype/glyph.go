@@ -17,16 +17,15 @@ type Point struct {
 // A GlyphBuf holds a glyph's contours. A GlyphBuf can be re-used to load a
 // series of glyphs from a Font.
 type GlyphBuf struct {
-	// The glyph's bounding box.
+	// B is the glyph's bounding box.
 	B Bounds
 	// Point contains all Points from all contours of the glyph. If a
 	// Hinter was used to load a glyph then Unhinted contains those
 	// Points before they were hinted, and InFontUnits contains those
-	// Points before they were hinted and scaled. Twilight is those
-	// Points created in the 'twilight zone' by the truetype hinting
-	// process.
-	Point, Unhinted, InFontUnits, Twilight []Point
-	// The length of End is the number of contours in the glyph. The i'th
+	// Points before they were hinted and scaled.
+	Point, Unhinted, InFontUnits []Point
+	// End is the point indexes of the end point of each countour. The
+	// length of End is the number of contours in the glyph. The i'th
 	// contour consists of points Point[End[i-1]:End[i]], where End[-1]
 	// is interpreted to mean zero.
 	End []int
@@ -123,7 +122,6 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	g.Point = g.Point[:0]
 	g.Unhinted = g.Unhinted[:0]
 	g.InFontUnits = g.InFontUnits[:0]
-	g.Twilight = g.Twilight[:0]
 	g.End = g.End[:0]
 	if h != nil {
 		if err := h.init(g, f, scale); err != nil {
@@ -283,13 +281,6 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 	}
 
 	return nil
-}
-
-func (g *GlyphBuf) points(zonePointer int32) []Point {
-	if zonePointer == 0 {
-		return g.Twilight
-	}
-	return g.Point
 }
 
 // NewGlyphBuf returns a newly allocated GlyphBuf.
