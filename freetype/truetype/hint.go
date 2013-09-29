@@ -402,16 +402,37 @@ func (h *Hinter) run(program []byte) error {
 			h.gs.rp[1] = i
 
 		case opIUP0, opIUP1:
-			// TODO: implement IUP.
-			// Glyph 4 in luxisr.ttf (the '!' glyph) has IUP instructions but
-			// they have no effect since none of the points are untouched.
-			// The IUP ops will be implemented when the N in truetype_test.go
-			// is raised above 5.
-			const mask = flagTouchedX | flagTouchedY
-			for _, p := range h.g.Point {
-				if p.Flags&mask != mask {
-					return errors.New("truetype: hinting: unimplemented IUP instruction")
+			iupY, mask := opcode == opIUP0, uint32(flagTouchedX)
+			if iupY {
+				mask = flagTouchedY
+			}
+			prevEnd := 0
+			for _, end := range h.g.End {
+				for i := prevEnd; i < end; i++ {
+					for i < end && h.g.Point[i].Flags&mask == 0 {
+						i++
+					}
+					if i == end {
+						break
+					}
+					firstTouched, curTouched := i, i
+					i++
+					for ; i < end; i++ {
+						if h.g.Point[i].Flags&mask != 0 {
+							h.iupInterp(iupY, curTouched+1, i-1, curTouched, i)
+							curTouched = i
+						}
+					}
+					if curTouched == firstTouched {
+						h.iupShift(iupY, prevEnd, end, curTouched)
+					} else {
+						h.iupInterp(iupY, curTouched+1, end-1, curTouched, firstTouched)
+						if firstTouched > 0 {
+							h.iupInterp(iupY, prevEnd, firstTouched-1, curTouched, firstTouched)
+						}
+					}
 				}
+				prevEnd = end
 			}
 
 		case opIP:
@@ -1041,6 +1062,117 @@ func (h *Hinter) move(p *Point, distance f26dot6) {
 	p.X += int32(int64(distance) * fvx / fvDotPv)
 	p.Y += int32(int64(distance) * fvy / fvDotPv)
 	p.Flags |= flagTouchedX | flagTouchedY
+}
+
+func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
+	if p1 > p2 {
+		return
+	}
+	if ref1 >= len(h.g.Point) || ref2 >= len(h.g.Point) {
+		return
+	}
+
+	var ifu1, ifu2 int32
+	if interpY {
+		ifu1 = h.g.InFontUnits[ref1].Y
+		ifu2 = h.g.InFontUnits[ref2].Y
+	} else {
+		ifu1 = h.g.InFontUnits[ref1].X
+		ifu2 = h.g.InFontUnits[ref2].X
+	}
+	if ifu1 > ifu2 {
+		ifu1, ifu2 = ifu2, ifu1
+		ref1, ref2 = ref2, ref1
+	}
+
+	var unh1, unh2, delta1, delta2 int32
+	if interpY {
+		unh1 = h.g.Unhinted[ref1].Y
+		unh2 = h.g.Unhinted[ref2].Y
+		delta1 = h.g.Point[ref1].Y - unh1
+		delta2 = h.g.Point[ref2].Y - unh2
+	} else {
+		unh1 = h.g.Unhinted[ref1].X
+		unh2 = h.g.Unhinted[ref2].X
+		delta1 = h.g.Point[ref1].X - unh1
+		delta2 = h.g.Point[ref2].X - unh2
+	}
+
+	var xy, ifuXY int32
+	if ifu1 == ifu2 {
+		for i := p1; i <= p2; i++ {
+			if interpY {
+				xy = h.g.Unhinted[i].Y
+			} else {
+				xy = h.g.Unhinted[i].X
+			}
+
+			if xy <= unh1 {
+				xy += delta1
+			} else {
+				xy += delta2
+			}
+
+			if interpY {
+				h.g.Point[i].Y = xy
+			} else {
+				h.g.Point[i].X = xy
+			}
+		}
+
+	} else {
+		scale, scaleOK := int64(0), false
+		for i := p1; i <= p2; i++ {
+			if interpY {
+				xy = h.g.Unhinted[i].Y
+				ifuXY = h.g.InFontUnits[i].Y
+			} else {
+				xy = h.g.Unhinted[i].X
+				ifuXY = h.g.InFontUnits[i].X
+			}
+
+			if xy <= unh1 {
+				xy += delta1
+			} else if xy >= unh2 {
+				xy += delta2
+			} else {
+				if !scaleOK {
+					scaleOK = true
+					denom := int64(ifu2 - ifu1)
+					scale = (int64(unh2+delta2-unh1-delta1)*0x10000 + denom/2) / denom
+				}
+				xy = unh1 + delta1 + int32((int64(ifuXY-ifu1)*scale+0x8000)/0x10000)
+			}
+
+			if interpY {
+				h.g.Point[i].Y = xy
+			} else {
+				h.g.Point[i].X = xy
+			}
+		}
+	}
+}
+
+func (h *Hinter) iupShift(interpY bool, p1, p2, p int) {
+	var delta int32
+	if interpY {
+		delta = h.g.Point[p].Y - h.g.Unhinted[p].Y
+	} else {
+		delta = h.g.Point[p].X - h.g.Unhinted[p].X
+	}
+	if delta == 0 {
+		return
+	}
+	for i := p1; i < p2; i++ {
+		if i == p {
+			continue
+		}
+		if interpY {
+			h.g.Point[i].Y += delta
+		} else {
+			h.g.Point[i].X += delta
+		}
+	}
 }
 
 // skipInstructionPayload increments pc by the extra data that follows a
