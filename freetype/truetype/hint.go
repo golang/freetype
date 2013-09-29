@@ -1237,27 +1237,21 @@ func dotProduct(x, y f26dot6, q [2]f2dot14) f26dot6 {
 // https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
 func (h *Hinter) round(x f26dot6) f26dot6 {
 	if h.gs.roundPeriod == 0 {
+		// Rounding is off.
 		return x
 	}
-	neg := x < 0
-	x -= h.gs.roundPhase
-	x += h.gs.roundThreshold
 	if x >= 0 {
-		x = (x / h.gs.roundPeriod) * h.gs.roundPeriod
-	} else {
-		x -= h.gs.roundPeriod
-		x += 1
-		x = (x / h.gs.roundPeriod) * h.gs.roundPeriod
-	}
-	x += h.gs.roundPhase
-	if neg {
-		if x >= 0 {
-			x = h.gs.roundPhase - h.gs.roundPeriod
+		ret := (x - h.gs.roundPhase + h.gs.roundThreshold) & -h.gs.roundPeriod
+		if x != 0 && ret < 0 {
+			ret = 0
 		}
-	} else if x < 0 {
-		x = h.gs.roundPhase
+		return ret + h.gs.roundPhase
 	}
-	return x
+	ret := -((-x - h.gs.roundPhase + h.gs.roundThreshold) & -h.gs.roundPeriod)
+	if ret > 0 {
+		ret = 0
+	}
+	return ret - h.gs.roundPhase
 }
 
 func bool2int32(b bool) int32 {

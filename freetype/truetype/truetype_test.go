@@ -116,7 +116,7 @@ func testScaling(t *testing.T, filename string, hinter *Hinter) {
 	for i, want := range wants {
 		// TODO: completely implement hinting. For now, only the first N glyphs
 		// of luxisr.ttf are correctly hinted.
-		const N = 8
+		const N = 9
 		if hinter != nil && i == N {
 			break
 		}
