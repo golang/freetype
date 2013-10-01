@@ -230,7 +230,7 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 		g.End = make([]int, ne, ne*2)
 	}
 	for i := ne0; i < ne; i++ {
-		g.End[i] = 1 + np0 + int(u16(glyf, offset))
+		g.End[i] = 1 + int(u16(glyf, offset))
 		offset += 2
 	}
 
@@ -241,7 +241,7 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 	offset += instrLen
 
 	// Decode the points.
-	np := int(g.End[ne-1])
+	np := int(g.End[ne-1]) + np0
 	if np <= cap(g.Point) {
 		g.Point = g.Point[:np]
 	} else {
@@ -275,9 +275,27 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 	}
 	if h != nil {
 		g.Unhinted = append(g.Unhinted, g.Point[np0:np]...)
+		// For compound glyphs, the hinting program expects the []Point and
+		// []End slices to be indexed relative to the inner glyph, not the
+		// outer glyph. Save the outer slices, run the program, and restore
+		// the outer slices.
+		// TODO: make these four slices arguments to Hinter.run?
+		gp, gu, gi, ge := g.Point, g.Unhinted, g.InFontUnits, g.End
+		g.Point = g.Point[np0:]
+		g.Unhinted = g.Unhinted[np0:]
+		g.InFontUnits = g.InFontUnits[np0:]
+		g.End = g.End[ne0:]
 		if err := h.run(program); err != nil {
 			return err
 		}
+		g.Point, g.Unhinted, g.InFontUnits, g.End = gp, gu, gi, ge
+	}
+
+	// The hinting program expects the []End values to be indexed relative
+	// to the inner glyph, not the outer glyph, so we delay adding np0 until
+	// after the hinting program (if any) has run.
+	for i := ne0; i < ne; i++ {
+		g.End[i] += np0
 	}
 
 	return nil
