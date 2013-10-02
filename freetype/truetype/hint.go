@@ -12,6 +12,21 @@ import (
 	"errors"
 )
 
+const (
+	twilightZone = 0
+	glyphZone    = 1
+	numZone      = 2
+)
+
+type pointType uint32
+
+const (
+	current      pointType = 0
+	unhinted     pointType = 1
+	inFontUnits  pointType = 2
+	numPointType           = 3
+)
+
 // callStackEntry is a bytecode call stack entry.
 type callStackEntry struct {
 	program   []byte
@@ -28,11 +43,9 @@ type Hinter struct {
 	// functions is a map from function number to bytecode.
 	functions map[int32][]byte
 
-	// g, font and scale are the glyph buffer, font and scale last used for
-	// this Hinter. Changing the font will require running the new font's
-	// fpgm bytecode. Changing either will require running the font's prep
-	// bytecode.
-	g     *GlyphBuf
+	// font and scale are the font and scale last used for this Hinter.
+	// Changing the font will require running the new font's fpgm bytecode.
+	// Changing either will require running the font's prep bytecode.
 	font  *Font
 	scale int32
 
@@ -41,8 +54,10 @@ type Hinter struct {
 	// the font's fpgm and prep programs have been run.
 	gs, defaultGS graphicsState
 
-	// twilightXxx are points created in the twilight zone.
-	twilightPoint, twilightUnhinted, twilightInFontUnits []Point
+	// points and ends are the twilight zone's points, glyph's points
+	// and glyph's contour boundaries.
+	points [numZone][numPointType][]Point
+	ends   []int
 }
 
 // graphicsState is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
@@ -94,11 +109,10 @@ func resetTwilightPoints(f *Font, p []Point) []Point {
 	return p
 }
 
-func (h *Hinter) init(g *GlyphBuf, f *Font, scale int32) error {
-	h.g = g
-	h.twilightPoint = resetTwilightPoints(f, h.twilightPoint)
-	h.twilightUnhinted = resetTwilightPoints(f, h.twilightUnhinted)
-	h.twilightInFontUnits = resetTwilightPoints(f, h.twilightInFontUnits)
+func (h *Hinter) init(f *Font, scale int32) error {
+	h.points[twilightZone][0] = resetTwilightPoints(f, h.points[twilightZone][0])
+	h.points[twilightZone][1] = resetTwilightPoints(f, h.points[twilightZone][1])
+	h.points[twilightZone][2] = resetTwilightPoints(f, h.points[twilightZone][2])
 
 	rescale := h.scale != scale
 	if h.font != f {
@@ -122,7 +136,7 @@ func (h *Hinter) init(g *GlyphBuf, f *Font, scale int32) error {
 			h.store = make([]int32, x)
 		}
 		if len(f.fpgm) != 0 {
-			if err := h.run(f.fpgm); err != nil {
+			if err := h.run(f.fpgm, nil, nil, nil, nil); err != nil {
 				return err
 			}
 		}
@@ -134,7 +148,7 @@ func (h *Hinter) init(g *GlyphBuf, f *Font, scale int32) error {
 		h.defaultGS = globalDefaultGS
 
 		if len(f.prep) != 0 {
-			if err := h.run(f.prep); err != nil {
+			if err := h.run(f.prep, nil, nil, nil, nil); err != nil {
 				return err
 			}
 			h.defaultGS = h.gs
@@ -151,8 +165,12 @@ func (h *Hinter) init(g *GlyphBuf, f *Font, scale int32) error {
 	return nil
 }
 
-func (h *Hinter) run(program []byte) error {
+func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, ends []int) error {
 	h.gs = h.defaultGS
+	h.points[glyphZone][current] = pCurrent
+	h.points[glyphZone][unhinted] = pUnhinted
+	h.points[glyphZone][inFontUnits] = pInFontUnits
+	h.ends = ends
 
 	if len(program) > 50000 {
 		return errors.New("truetype: hinting: too many instructions")
@@ -407,9 +425,9 @@ func (h *Hinter) run(program []byte) error {
 				mask = flagTouchedY
 			}
 			prevEnd := 0
-			for _, end := range h.g.End {
+			for _, end := range h.ends {
 				for i := prevEnd; i < end; i++ {
-					for i < end && h.g.Point[i].Flags&mask == 0 {
+					for i < end && h.points[glyphZone][current][i].Flags&mask == 0 {
 						i++
 					}
 					if i == end {
@@ -418,7 +436,7 @@ func (h *Hinter) run(program []byte) error {
 					firstTouched, curTouched := i, i
 					i++
 					for ; i < end; i++ {
-						if h.g.Point[i].Flags&mask != 0 {
+						if h.points[glyphZone][current][i].Flags&mask != 0 {
 							h.iupInterp(iupY, curTouched+1, i-1, curTouched, i)
 							curTouched = i
 						}
@@ -476,19 +494,16 @@ func (h *Hinter) run(program []byte) error {
 			if top < int(h.gs.loop) {
 				return errors.New("truetype: hinting: stack underflow")
 			}
-			i := h.gs.rp[0]
-			ref := h.point(0, current, i)
+			ref := h.point(0, current, h.gs.rp[0])
 			if ref == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			points := h.points(1, current)
 			for ; h.gs.loop != 0; h.gs.loop-- {
 				top--
-				i = h.stack[top]
-				if i < 0 || len(points) <= int(i) {
+				p := h.point(1, current, h.stack[top])
+				if p == nil {
 					return errors.New("truetype: hinting: point out of range")
 				}
-				p := &points[i]
 				h.move(p, -dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv))
 			}
 			h.gs.loop = 1
@@ -1008,39 +1023,12 @@ func (h *Hinter) cvt(i int32) f26dot6 {
 	return f26dot6(h.font.scale(h.scale * int32(int16(cv))))
 }
 
-type pointType uint32
-
-const (
-	current     pointType = 0
-	unhinted    pointType = 1
-	inFontUnits pointType = 2
-)
-
-func (h *Hinter) point(zone uint32, pt pointType, i int32) *Point {
-	points := h.points(zone, pt)
+func (h *Hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
+	points := h.points[h.gs.zp[zonePointer]][pt]
 	if i < 0 || len(points) <= int(i) {
 		return nil
 	}
 	return &points[i]
-}
-
-func (h *Hinter) points(zone uint32, pt pointType) []Point {
-	if h.gs.zp[zone] == 0 {
-		switch pt {
-		case unhinted:
-			return h.twilightUnhinted
-		case inFontUnits:
-			return h.twilightInFontUnits
-		}
-		return h.twilightPoint
-	}
-	switch pt {
-	case unhinted:
-		return h.g.Unhinted
-	case inFontUnits:
-		return h.g.InFontUnits
-	}
-	return h.g.Point
 }
 
 func (h *Hinter) move(p *Point, distance f26dot6) {
@@ -1068,17 +1056,18 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 	if p1 > p2 {
 		return
 	}
-	if ref1 >= len(h.g.Point) || ref2 >= len(h.g.Point) {
+	if ref1 >= len(h.points[glyphZone][current]) ||
+		ref2 >= len(h.points[glyphZone][current]) {
 		return
 	}
 
 	var ifu1, ifu2 int32
 	if interpY {
-		ifu1 = h.g.InFontUnits[ref1].Y
-		ifu2 = h.g.InFontUnits[ref2].Y
+		ifu1 = h.points[glyphZone][inFontUnits][ref1].Y
+		ifu2 = h.points[glyphZone][inFontUnits][ref2].Y
 	} else {
-		ifu1 = h.g.InFontUnits[ref1].X
-		ifu2 = h.g.InFontUnits[ref2].X
+		ifu1 = h.points[glyphZone][inFontUnits][ref1].X
+		ifu2 = h.points[glyphZone][inFontUnits][ref2].X
 	}
 	if ifu1 > ifu2 {
 		ifu1, ifu2 = ifu2, ifu1
@@ -1087,24 +1076,24 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 
 	var unh1, unh2, delta1, delta2 int32
 	if interpY {
-		unh1 = h.g.Unhinted[ref1].Y
-		unh2 = h.g.Unhinted[ref2].Y
-		delta1 = h.g.Point[ref1].Y - unh1
-		delta2 = h.g.Point[ref2].Y - unh2
+		unh1 = h.points[glyphZone][unhinted][ref1].Y
+		unh2 = h.points[glyphZone][unhinted][ref2].Y
+		delta1 = h.points[glyphZone][current][ref1].Y - unh1
+		delta2 = h.points[glyphZone][current][ref2].Y - unh2
 	} else {
-		unh1 = h.g.Unhinted[ref1].X
-		unh2 = h.g.Unhinted[ref2].X
-		delta1 = h.g.Point[ref1].X - unh1
-		delta2 = h.g.Point[ref2].X - unh2
+		unh1 = h.points[glyphZone][unhinted][ref1].X
+		unh2 = h.points[glyphZone][unhinted][ref2].X
+		delta1 = h.points[glyphZone][current][ref1].X - unh1
+		delta2 = h.points[glyphZone][current][ref2].X - unh2
 	}
 
 	var xy, ifuXY int32
 	if ifu1 == ifu2 {
 		for i := p1; i <= p2; i++ {
 			if interpY {
-				xy = h.g.Unhinted[i].Y
+				xy = h.points[glyphZone][unhinted][i].Y
 			} else {
-				xy = h.g.Unhinted[i].X
+				xy = h.points[glyphZone][unhinted][i].X
 			}
 
 			if xy <= unh1 {
@@ -1114,9 +1103,9 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 			}
 
 			if interpY {
-				h.g.Point[i].Y = xy
+				h.points[glyphZone][current][i].Y = xy
 			} else {
-				h.g.Point[i].X = xy
+				h.points[glyphZone][current][i].X = xy
 			}
 		}
 
@@ -1124,11 +1113,11 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 		scale, scaleOK := int64(0), false
 		for i := p1; i <= p2; i++ {
 			if interpY {
-				xy = h.g.Unhinted[i].Y
-				ifuXY = h.g.InFontUnits[i].Y
+				xy = h.points[glyphZone][unhinted][i].Y
+				ifuXY = h.points[glyphZone][inFontUnits][i].Y
 			} else {
-				xy = h.g.Unhinted[i].X
-				ifuXY = h.g.InFontUnits[i].X
+				xy = h.points[glyphZone][unhinted][i].X
+				ifuXY = h.points[glyphZone][inFontUnits][i].X
 			}
 
 			if xy <= unh1 {
@@ -1145,9 +1134,9 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 			}
 
 			if interpY {
-				h.g.Point[i].Y = xy
+				h.points[glyphZone][current][i].Y = xy
 			} else {
-				h.g.Point[i].X = xy
+				h.points[glyphZone][current][i].X = xy
 			}
 		}
 	}
@@ -1156,9 +1145,9 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 func (h *Hinter) iupShift(interpY bool, p1, p2, p int) {
 	var delta int32
 	if interpY {
-		delta = h.g.Point[p].Y - h.g.Unhinted[p].Y
+		delta = h.points[glyphZone][current][p].Y - h.points[glyphZone][unhinted][p].Y
 	} else {
-		delta = h.g.Point[p].X - h.g.Unhinted[p].X
+		delta = h.points[glyphZone][current][p].X - h.points[glyphZone][unhinted][p].X
 	}
 	if delta == 0 {
 		return
@@ -1168,9 +1157,9 @@ func (h *Hinter) iupShift(interpY bool, p1, p2, p int) {
 			continue
 		}
 		if interpY {
-			h.g.Point[i].Y += delta
+			h.points[glyphZone][current][i].Y += delta
 		} else {
-			h.g.Point[i].X += delta
+			h.points[glyphZone][current][i].X += delta
 		}
 	}
 }

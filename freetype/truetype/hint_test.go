@@ -553,14 +553,13 @@ func TestBytecode(t *testing.T) {
 		},
 	}
 
-	var g GlyphBuf
 	for _, tc := range testCases {
 		h := &Hinter{}
-		h.init(&g, &Font{
+		h.init(&Font{
 			maxStorage:       32,
 			maxStackElements: 100,
 		}, 768)
-		err, errStr := h.run(tc.prog), ""
+		err, errStr := h.run(tc.prog, nil, nil, nil, nil), ""
 		if err != nil {
 			errStr = err.Error()
 		}

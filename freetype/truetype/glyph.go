@@ -124,7 +124,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	g.InFontUnits = g.InFontUnits[:0]
 	g.End = g.End[:0]
 	if h != nil {
-		if err := h.init(g, f, scale); err != nil {
+		if err := h.init(f, scale); err != nil {
 			return err
 		}
 	}
@@ -275,20 +275,10 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 	}
 	if h != nil {
 		g.Unhinted = append(g.Unhinted, g.Point[np0:np]...)
-		// For compound glyphs, the hinting program expects the []Point and
-		// []End slices to be indexed relative to the inner glyph, not the
-		// outer glyph. Save the outer slices, run the program, and restore
-		// the outer slices.
-		// TODO: make these four slices arguments to Hinter.run?
-		gp, gu, gi, ge := g.Point, g.Unhinted, g.InFontUnits, g.End
-		g.Point = g.Point[np0:]
-		g.Unhinted = g.Unhinted[np0:]
-		g.InFontUnits = g.InFontUnits[np0:]
-		g.End = g.End[ne0:]
-		if err := h.run(program); err != nil {
+		err := h.run(program, g.Point[np0:], g.Unhinted[np0:], g.InFontUnits[np0:], g.End[ne0:])
+		if err != nil {
 			return err
 		}
-		g.Point, g.Unhinted, g.InFontUnits, g.End = gp, gu, gi, ge
 	}
 
 	// The hinting program expects the []End values to be indexed relative
