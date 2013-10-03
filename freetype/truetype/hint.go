@@ -307,7 +307,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSSW:
 			top--
-			h.gs.singleWidth = f26dot6(h.stack[top])
+			h.gs.singleWidth = f26dot6(h.font.scale(h.scale * h.stack[top]))
 
 		case opDUP:
 			if top >= len(h.stack) {
@@ -821,9 +821,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			// Single-width cut-in test.
 			if x := (oldDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
 				if oldDist >= 0 {
-					oldDist = h.gs.singleWidthCutIn
+					oldDist = +h.gs.singleWidth
 				} else {
-					oldDist = -h.gs.singleWidthCutIn
+					oldDist = -h.gs.singleWidth
 				}
 			}
 
