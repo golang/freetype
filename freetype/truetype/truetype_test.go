@@ -114,13 +114,6 @@ func testScaling(t *testing.T, filename string, hinter *Hinter) {
 	const fontSize = 12
 	glyphBuf := NewGlyphBuf()
 	for i, want := range wants {
-		// TODO: completely implement hinting. For now, only the first N glyphs
-		// of luxisr.ttf are correctly hinted.
-		const N = 136
-		if hinter != nil && i == N {
-			break
-		}
-
 		if err = glyphBuf.Load(font, fontSize*64, Index(i), hinter); err != nil {
 			t.Fatalf("Load: %v", err)
 		}

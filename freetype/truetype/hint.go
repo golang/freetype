@@ -1108,36 +1108,48 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 				h.points[glyphZone][current][i].X = xy
 			}
 		}
+		return
+	}
 
-	} else {
-		scale, scaleOK := int64(0), false
-		for i := p1; i <= p2; i++ {
-			if interpY {
-				xy = h.points[glyphZone][unhinted][i].Y
-				ifuXY = h.points[glyphZone][inFontUnits][i].Y
-			} else {
-				xy = h.points[glyphZone][unhinted][i].X
-				ifuXY = h.points[glyphZone][inFontUnits][i].X
-			}
+	scale, scaleOK := int64(0), false
+	for i := p1; i <= p2; i++ {
+		if interpY {
+			xy = h.points[glyphZone][unhinted][i].Y
+			ifuXY = h.points[glyphZone][inFontUnits][i].Y
+		} else {
+			xy = h.points[glyphZone][unhinted][i].X
+			ifuXY = h.points[glyphZone][inFontUnits][i].X
+		}
 
-			if xy <= unh1 {
-				xy += delta1
-			} else if xy >= unh2 {
-				xy += delta2
-			} else {
-				if !scaleOK {
-					scaleOK = true
-					denom := int64(ifu2 - ifu1)
-					scale = (int64(unh2+delta2-unh1-delta1)*0x10000 + denom/2) / denom
+		if xy <= unh1 {
+			xy += delta1
+		} else if xy >= unh2 {
+			xy += delta2
+		} else {
+			if !scaleOK {
+				scaleOK = true
+				numer := int64(unh2+delta2-unh1-delta1) * 0x10000
+				denom := int64(ifu2 - ifu1)
+				if numer >= 0 {
+					numer += denom / 2
+				} else {
+					numer -= denom / 2
 				}
-				xy = unh1 + delta1 + int32((int64(ifuXY-ifu1)*scale+0x8000)/0x10000)
+				scale = numer / denom
 			}
-
-			if interpY {
-				h.points[glyphZone][current][i].Y = xy
+			numer := int64(ifuXY-ifu1) * scale
+			if numer >= 0 {
+				numer += 0x8000
 			} else {
-				h.points[glyphZone][current][i].X = xy
+				numer -= 0x8000
 			}
+			xy = unh1 + delta1 + int32(numer/0x10000)
+		}
+
+		if interpY {
+			h.points[glyphZone][current][i].Y = xy
+		} else {
+			h.points[glyphZone][current][i].X = xy
 		}
 	}
 }
