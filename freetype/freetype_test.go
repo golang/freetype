@@ -21,7 +21,7 @@ func BenchmarkDrawString(b *testing.B) {
 	}
 	lines := strings.Split(string(data), "\n")
 
-	data, err = ioutil.ReadFile("../luxi-fonts/luxisr.ttf")
+	data, err = ioutil.ReadFile("../testdata/luxisr.ttf")
 	if err != nil {
 		b.Fatal(err)
 	}

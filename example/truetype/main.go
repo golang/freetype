@@ -14,7 +14,7 @@ import (
 	"code.google.com/p/freetype-go/freetype/truetype"
 )
 
-var fontfile = flag.String("fontfile", "../../luxi-fonts/luxisr.ttf", "filename of the ttf font")
+var fontfile = flag.String("fontfile", "../../testdata/luxisr.ttf", "filename of the ttf font")
 
 func printBounds(b truetype.Bounds) {
 	fmt.Printf("XMin:%d YMin:%d XMax:%d YMax:%d\n", b.XMin, b.YMin, b.XMax, b.YMax)

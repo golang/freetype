@@ -19,7 +19,7 @@ import (
 // TestParse tests that the luxisr.ttf metrics and glyphs are parsed correctly.
 // The numerical values can be manually verified by examining luxisr.ttx.
 func TestParse(t *testing.T) {
-	b, err := ioutil.ReadFile("../../luxi-fonts/luxisr.ttf")
+	b, err := ioutil.ReadFile("../../testdata/luxisr.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestParse(t *testing.T) {
 }
 
 func testScaling(t *testing.T, filename string, hinter *Hinter) {
-	b, err := ioutil.ReadFile("../../luxi-fonts/luxisr.ttf")
+	b, err := ioutil.ReadFile("../../testdata/luxisr.ttf")
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -83,7 +83,7 @@ func testScaling(t *testing.T, filename string, hinter *Hinter) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	f, err := os.Open("../../luxi-fonts/" + filename)
+	f, err := os.Open("../../testdata/" + filename)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
 		printf("FT_Init_FreeType: error #%d\n", error);
 		return 1;
 	}
-	error = FT_New_Face(library, "../../luxi-fonts/luxisr.ttf", 0, &face);
+	error = FT_New_Face(library, "../../testdata/luxisr.ttf", 0, &face);
 	if (error) {
 		printf("FT_New_Face: error #%d\n", error);
 		return 1;
