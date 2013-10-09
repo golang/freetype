@@ -55,8 +55,8 @@ const (
 
 // decodeFlags decodes a glyph's run-length encoded flags,
 // and returns the remaining data.
-func (g *GlyphBuf) decodeFlags(d []byte, offset int, np0 int) (offset1 int) {
-	for i := np0; i < len(g.Point); {
+func (g *GlyphBuf) decodeFlags(d []byte, offset int, np0, np int) (offset1 int) {
+	for i := np0; i < np; {
 		c := uint32(d[offset])
 		offset++
 		g.Point[i].Flags = c
@@ -74,9 +74,9 @@ func (g *GlyphBuf) decodeFlags(d []byte, offset int, np0 int) (offset1 int) {
 }
 
 // decodeCoords decodes a glyph's delta encoded co-ordinates.
-func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0 int) int {
+func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0, np int) int {
 	var x int16
-	for i := np0; i < len(g.Point); i++ {
+	for i := np0; i < np; i++ {
 		f := g.Point[i].Flags
 		if f&flagXShortVector != 0 {
 			dx := int16(d[offset])
@@ -93,7 +93,7 @@ func (g *GlyphBuf) decodeCoords(d []byte, offset int, np0 int) int {
 		g.Point[i].X = int32(x)
 	}
 	var y int16
-	for i := np0; i < len(g.Point); i++ {
+	for i := np0; i < np; i++ {
 		f := g.Point[i].Flags
 		if f&flagYShortVector != 0 {
 			dy := int16(d[offset])
@@ -128,7 +128,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 			return err
 		}
 	}
-	if err := g.load(f, scale, i, h, 0, 0, false, 0); err != nil {
+	if _, err := g.load(f, scale, i, h, 0, 0, false, 0); err != nil {
 		return err
 	}
 	g.B.XMin = f.scale(scale * g.B.XMin)
@@ -138,9 +138,16 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	return nil
 }
 
+// TODO: all these extra parameters and return values for loadCompound and load
+// are awkward. We should clean this up once all the tests pass, when we can
+// refactor with confidence that we don't break anything.
+
 // loadCompound loads a glyph that is composed of other glyphs.
+//
+// metricsOverride is whether the sub-glyph overrides the super-glyph's
+// metrics. pp1x is the x co-ordinate of the 1st phantom point.
 func (g *GlyphBuf) loadCompound(f *Font, scale int32, h *Hinter, glyf []byte, offset int,
-	dx, dy int32, recursion int) error {
+	dx, dy int32, recursion int) (metricsOverride bool, pp1x int32, offset1 int, err error) {
 
 	// Flags for decoding a compound glyph. These flags are documented at
 	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
@@ -171,29 +178,37 @@ func (g *GlyphBuf) loadCompound(f *Font, scale int32, h *Hinter, glyf []byte, of
 			offset += 6
 		}
 		if flags&flagArgsAreXYValues == 0 {
-			return UnsupportedError("compound glyph transform vector")
+			return false, 0, 0, UnsupportedError("compound glyph transform vector")
 		}
 		if flags&(flagWeHaveAScale|flagWeHaveAnXAndYScale|flagWeHaveATwoByTwo) != 0 {
-			return UnsupportedError("compound glyph scale/transform")
+			return false, 0, 0, UnsupportedError("compound glyph scale/transform")
 		}
-		b0 := g.B
-		g.load(f, scale, component, h, dx1, dy1, flags&flagRoundXYToGrid != 0, recursion+1)
-		if flags&flagUseMyMetrics == 0 {
-			g.B = b0
+		b := g.B
+		subPP1x, err := g.load(f, scale, component, h,
+			dx1, dy1, flags&flagRoundXYToGrid != 0, recursion+1)
+		if err != nil {
+			return false, 0, 0, err
+		}
+		if flags&flagUseMyMetrics != 0 {
+			metricsOverride, pp1x = true, subPP1x
+		} else {
+			g.B = b
 		}
 		if flags&flagMoreComponents == 0 {
 			break
 		}
 	}
-	return nil
+	return metricsOverride, pp1x, offset, nil
 }
 
 // load appends a glyph's contours to this GlyphBuf.
+//
+// pp1x is the x co-ordinate of the 1st phantom point.
 func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
-	dx, dy int32, roundDxDy bool, recursion int) error {
+	dx, dy int32, roundDxDy bool, recursion int) (pp1x int32, err error) {
 
 	if recursion >= 4 {
-		return UnsupportedError("excessive compound glyph recursion")
+		return 0, UnsupportedError("excessive compound glyph recursion")
 	}
 	// Find the relevant slice of f.glyf.
 	var g0, g1 uint32
@@ -205,79 +220,123 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 		g1 = u32(f.loca, 4*int(i)+4)
 	}
 	if g0 == g1 {
-		return nil
+		return 0, nil
 	}
 	glyf := f.glyf[g0:g1]
 	// Decode the contour end indices.
 	ne := int(int16(u16(glyf, 0)))
-	g.B.XMin = int32(int16(u16(glyf, 2)))
-	g.B.YMin = int32(int16(u16(glyf, 4)))
-	g.B.XMax = int32(int16(u16(glyf, 6)))
-	g.B.YMax = int32(int16(u16(glyf, 8)))
+	b := Bounds{
+		XMin: int32(int16(u16(glyf, 2))),
+		YMin: int32(int16(u16(glyf, 4))),
+		XMax: int32(int16(u16(glyf, 6))),
+		YMax: int32(int16(u16(glyf, 8))),
+	}
 	offset := 10
-	if ne == -1 {
-		return g.loadCompound(f, scale, h, glyf, offset, dx, dy, recursion)
-	} else if ne < 0 {
-		// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
-		// "the values -2, -3, and so forth, are reserved for future use."
-		return UnsupportedError("negative number of contours")
-	}
-	ne0, np0 := len(g.End), len(g.Point)
-	ne += ne0
-	if ne <= cap(g.End) {
-		g.End = g.End[:ne]
+	ne0, np0, np, metricsOverride, program := len(g.End), 0, 0, false, []byte(nil)
+	if ne < 0 {
+		if ne != -1 {
+			// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
+			// "the values -2, -3, and so forth, are reserved for future use."
+			return 0, UnsupportedError("negative number of contours")
+		}
+		var subPP1x int32
+		metricsOverride, subPP1x, offset, err =
+			g.loadCompound(f, scale, h, glyf, offset, dx, dy, recursion)
+		if err != nil {
+			return 0, err
+		}
+		if metricsOverride {
+			pp1x = subPP1x
+		}
+		ne = ne0
+		np0 = len(g.Point)
+		np = np0
+		// TODO: find the program, if present, for a compound glyph.
+
 	} else {
-		g.End = make([]int, ne, ne*2)
-	}
-	for i := ne0; i < ne; i++ {
-		g.End[i] = 1 + int(u16(glyf, offset))
+		ne += ne0
+		if ne <= cap(g.End) {
+			g.End = g.End[:ne]
+		} else {
+			g.End = make([]int, ne, ne*2)
+		}
+		for i := ne0; i < ne; i++ {
+			g.End[i] = 1 + int(u16(glyf, offset))
+			offset += 2
+		}
+		np0 = len(g.Point)
+		np = np0 + int(g.End[ne-1])
+
+		// Note the TrueType hinting instructions.
+		instrLen := int(u16(glyf, offset))
 		offset += 2
+		program = glyf[offset : offset+instrLen]
+		offset += instrLen
 	}
 
-	// Note the TrueType hinting instructions.
-	instrLen := int(u16(glyf, offset))
-	offset += 2
-	program := glyf[offset : offset+instrLen]
-	offset += instrLen
-
-	// Decode the points.
-	np := int(g.End[ne-1]) + np0
-	if np <= cap(g.Point) {
-		g.Point = g.Point[:np]
+	// Decode the points, including room for the phantom points.
+	const nPhantomPoints = 4
+	if np+nPhantomPoints <= cap(g.Point) {
+		g.Point = g.Point[:np+nPhantomPoints]
 	} else {
 		p := g.Point
-		g.Point = make([]Point, np, np*2)
+		g.Point = make([]Point, np+nPhantomPoints, (np+nPhantomPoints)*2)
 		copy(g.Point, p)
 	}
-	offset = g.decodeFlags(glyf, offset, np0)
-	g.decodeCoords(glyf, offset, np0)
+	offset = g.decodeFlags(glyf, offset, np0, np)
+	g.decodeCoords(glyf, offset, np0, np)
+
+	// Set the four phantom points. Freetype-Go uses only the first two,
+	// but the hinting bytecode may expect four.
+	g.B = b
+	uhm := f.unscaledHMetric(i)
+	g.Point[np+0] = Point{X: b.XMin - uhm.LeftSideBearing}
+	g.Point[np+1] = Point{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth}
+	g.Point[np+2] = Point{}
+	g.Point[np+3] = Point{}
 
 	// Delta-adjust, scale and hint.
 	if h != nil {
-		g.InFontUnits = append(g.InFontUnits, g.Point[np0:np]...)
-		for i := np0; i < np; i++ {
+		g.InFontUnits = append(g.InFontUnits, g.Point[np0:np+nPhantomPoints]...)
+		for i := np0; i < np+nPhantomPoints; i++ {
 			g.InFontUnits[i].X += dx
 			g.InFontUnits[i].Y += dy
 		}
 	}
+	scaledDx := int32(0)
 	if roundDxDy {
 		dx = (f.scale(scale*dx) + 32) &^ 63
 		dy = (f.scale(scale*dy) + 32) &^ 63
-		for i := np0; i < np; i++ {
+		for i := np0; i < np+nPhantomPoints; i++ {
 			g.Point[i].X = dx + f.scale(scale*g.Point[i].X)
 			g.Point[i].Y = dy + f.scale(scale*g.Point[i].Y)
 		}
+		scaledDx = dx
 	} else {
-		for i := np0; i < np; i++ {
+		for i := np0; i < np+nPhantomPoints; i++ {
 			g.Point[i].X = f.scale(scale * (g.Point[i].X + dx))
 			g.Point[i].Y = f.scale(scale * (g.Point[i].Y + dy))
 		}
+		scaledDx = f.scale(scale * dx)
 	}
 	if h != nil {
-		g.Unhinted = append(g.Unhinted, g.Point[np0:np]...)
-		err := h.run(program, g.Point[np0:], g.Unhinted[np0:], g.InFontUnits[np0:], g.End[ne0:])
-		if err != nil {
-			return err
+		g.Unhinted = append(g.Unhinted, g.Point[np0:np+nPhantomPoints]...)
+		if program != nil {
+			err := h.run(program, g.Point[np0:], g.Unhinted[np0:], g.InFontUnits[np0:], g.End[ne0:])
+			if err != nil {
+				return 0, err
+			}
+		}
+		g.Unhinted = g.Unhinted[:np]
+		g.InFontUnits = g.InFontUnits[:np]
+	}
+	if !metricsOverride {
+		pp1x = g.Point[np].X - scaledDx
+	}
+	g.Point = g.Point[:np]
+	if recursion == 0 && pp1x != 0 {
+		for i := range g.Point {
+			g.Point[i].X -= pp1x
 		}
 	}
 
@@ -288,7 +347,7 @@ func (g *GlyphBuf) load(f *Font, scale int32, i Index, h *Hinter,
 		g.End[i] += np0
 	}
 
-	return nil
+	return pp1x, nil
 }
 
 // NewGlyphBuf returns a newly allocated GlyphBuf.

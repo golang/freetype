@@ -85,10 +85,9 @@ var scalingTestCases = []struct {
 	{"luxisr", 12, -1},
 	// TODO: uncomment the fonts below, once they get past Parse and
 	// GlyphBuf.Load, and the unhinted values match C Freetype.
-	//{"x-arial-bold", 11, 0},
+	{"x-arial-bold", 11, 0},
 	//{"x-deja-vu-sans-oblique", 17, 0},
 	//{"x-droid-sans-japanese", 9, 0},
-	//{"x-inconsolata", 10, 0},
 	//{"x-times-new-roman", 13, 0},
 }
 

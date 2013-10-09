@@ -310,20 +310,29 @@ func (f *Font) Index(x rune) Index {
 	return 0
 }
 
-// HMetric returns the horizontal metrics for the glyph with the given index.
-func (f *Font) HMetric(scale int32, i Index) (h HMetric) {
+// unscaledHMetric returns the unscaled horizontal metrics for the glyph with
+// the given index.
+func (f *Font) unscaledHMetric(i Index) (h HMetric) {
 	j := int(i)
 	if j >= f.nGlyph {
 		return HMetric{}
 	}
 	if j >= f.nHMetric {
 		p := 4 * (f.nHMetric - 1)
-		h.AdvanceWidth = int32(u16(f.hmtx, p))
-		h.LeftSideBearing = int32(int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4)))
-	} else {
-		h.AdvanceWidth = int32(u16(f.hmtx, 4*j))
-		h.LeftSideBearing = int32(int16(u16(f.hmtx, 4*j+2)))
+		return HMetric{
+			AdvanceWidth:    int32(u16(f.hmtx, p)),
+			LeftSideBearing: int32(int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4))),
+		}
 	}
+	return HMetric{
+		AdvanceWidth:    int32(u16(f.hmtx, 4*j)),
+		LeftSideBearing: int32(int16(u16(f.hmtx, 4*j+2))),
+	}
+}
+
+// HMetric returns the horizontal metrics for the glyph with the given index.
+func (f *Font) HMetric(scale int32, i Index) HMetric {
+	h := f.unscaledHMetric(i)
 	h.AdvanceWidth = f.scale(scale * h.AdvanceWidth)
 	h.LeftSideBearing = f.scale(scale * h.LeftSideBearing)
 	return h

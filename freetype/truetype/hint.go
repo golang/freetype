@@ -96,9 +96,7 @@ var globalDefaultGS = graphicsState{
 }
 
 func resetTwilightPoints(f *Font, p []Point) []Point {
-	// TODO: the C Freetype code uses n+4 for the 4 phantom points, but a
-	// comment there says "(do we need this?)". Do we need to use n+4 here?
-	if n := int(f.maxTwilightPoints); n <= cap(p) {
+	if n := int(f.maxTwilightPoints) + 4; n <= cap(p) {
 		p = p[:n]
 		for i := range p {
 			p[i] = Point{}
