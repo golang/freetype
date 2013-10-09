@@ -1,27 +1,47 @@
 /*
-gcc main.c -I/usr/include/freetype2 -lfreetype && ./a.out
+gcc main.c -I/usr/include/freetype2 -lfreetype && ./a.out 12 ../../testdata/luxisr.ttf with_hinting
 */
 
 #include <stdio.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-static int font_size = 12;
-static int no_hinting = 0;
+void usage(char** argv) {
+	printf("usage: %s font_size font_file [with_hinting|sans_hinting]\n", argv[0]);
+}
 
 int main(int argc, char** argv) {
 	FT_Error error;
 	FT_Library library;
 	FT_Face face;
 	FT_Outline* o;
-	int i, j;
+	int i, j, font_size, no_hinting;
 
+	if (argc != 4) {
+		usage(argv);
+		return 1;
+	}
+	font_size = atoi(argv[1]);
+	if (font_size <= 0) {
+		printf("invalid font_size\n");
+		usage(argv);
+		return 1;
+	}
+	if (!strcmp(argv[3], "with_hinting")) {
+		no_hinting = 0;
+	} else if (!strcmp(argv[3], "sans_hinting")) {
+		no_hinting = 1;
+	} else {
+		printf("neither \"with_hinting\" nor \"sans_hinting\"\n");
+		usage(argv);
+		return 1;
+	};
 	error = FT_Init_FreeType(&library);
 	if (error) {
 		printf("FT_Init_FreeType: error #%d\n", error);
 		return 1;
 	}
-	error = FT_New_Face(library, "../../testdata/luxisr.ttf", 0, &face);
+	error = FT_New_Face(library, argv[2], 0, &face);
 	if (error) {
 		printf("FT_New_Face: error #%d\n", error);
 		return 1;
@@ -50,4 +70,5 @@ int main(int argc, char** argv) {
 		}
 		printf("\n");
 	}
+	return 0;
 }

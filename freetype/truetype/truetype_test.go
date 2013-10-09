@@ -74,63 +74,106 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func testScaling(t *testing.T, filename string, hinter *Hinter) {
-	b, err := ioutil.ReadFile("../../testdata/luxisr.ttf")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	font, err := Parse(b)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	f, err := os.Open("../../testdata/" + filename)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer f.Close()
+var scalingTestCases = []struct {
+	name string
+	size int32
+	// hintingBrokenAt, if non-negative, is the glyph index n for which
+	// only the first n glyphs are known to be correctly hinted.
+	// TODO: remove this field, when hinting is completely implemented.
+	hintingBrokenAt int
+}{
+	{"luxisr", 12, -1},
+	// TODO: uncomment the fonts below, once they get past Parse and
+	// GlyphBuf.Load, and the unhinted values match C Freetype.
+	//{"x-arial-bold", 11, 0},
+	//{"x-deja-vu-sans-oblique", 17, 0},
+	//{"x-droid-sans-japanese", 9, 0},
+	//{"x-inconsolata", 10, 0},
+	//{"x-times-new-roman", 13, 0},
+}
 
-	wants := [][]Point{}
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		text := scanner.Text()
-		if text == "" {
-			wants = append(wants, []Point{})
-			continue
-		}
-		ss := strings.Split(text, ",")
-		points := make([]Point, len(ss))
-		for i, s := range ss {
-			p := &points[i]
-			if _, err := fmt.Sscanf(s, "%d %d %d", &p.X, &p.Y, &p.Flags); err != nil {
-				t.Fatalf("Sscanf: %v", err)
+func testScaling(t *testing.T, hinter *Hinter) {
+loop:
+	for _, tc := range scalingTestCases {
+		b, err := ioutil.ReadFile(fmt.Sprintf("../../testdata/%s.ttf", tc.name))
+		if err != nil {
+			// The "x-foo" fonts are optional tests, as they are not checked
+			// in for copyright or file size reasons.
+			if strings.HasPrefix(tc.name, "x-") {
+				t.Logf("%s: ReadFile: %v", tc.name, err)
+			} else {
+				t.Errorf("%s: ReadFile: %v", tc.name, err)
 			}
+			continue loop
 		}
-		wants = append(wants, points)
-	}
-	if err := scanner.Err(); err != nil && err != io.EOF {
-		t.Fatalf("Scanner: %v", err)
-	}
+		font, err := Parse(b)
+		if err != nil {
+			t.Errorf("%s: Parse: %v", tc.name, err)
+			continue loop
+		}
+		hinting := "sans"
+		if hinter != nil {
+			hinting = "with"
+		}
+		f, err := os.Open(fmt.Sprintf(
+			"../../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hinting))
+		if err != nil {
+			t.Errorf("%s: Open: %v", tc.name, err)
+			continue loop
+		}
+		defer f.Close()
 
-	const fontSize = 12
-	glyphBuf := NewGlyphBuf()
-	for i, want := range wants {
-		if err = glyphBuf.Load(font, fontSize*64, Index(i), hinter); err != nil {
-			t.Fatalf("Load: %v", err)
+		wants := [][]Point{}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			text := scanner.Text()
+			if text == "" {
+				wants = append(wants, []Point{})
+				continue
+			}
+			ss := strings.Split(text, ",")
+			points := make([]Point, len(ss))
+			for i, s := range ss {
+				p := &points[i]
+				if _, err := fmt.Sscanf(s, "%d %d %d", &p.X, &p.Y, &p.Flags); err != nil {
+					t.Errorf("%s: Sscanf: %v", tc.name, err)
+					continue loop
+				}
+			}
+			wants = append(wants, points)
 		}
-		got := glyphBuf.Point
-		for i := range got {
-			got[i].Flags &= 0x01
+		if err := scanner.Err(); err != nil && err != io.EOF {
+			t.Errorf("%s: Scanner: %v", tc.name, err)
+			continue loop
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("glyph #%d:\ngot  %v\nwant %v\n", i, got, want)
+
+		glyphBuf := NewGlyphBuf()
+		for i, want := range wants {
+			// TODO: completely implement hinting. For now, only the first
+			// tc.hintingBrokenAt glyphs of the test case's font are correctly hinted.
+			if hinter != nil && i == tc.hintingBrokenAt {
+				break
+			}
+
+			if err = glyphBuf.Load(font, tc.size*64, Index(i), hinter); err != nil {
+				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
+				continue loop
+			}
+			got := glyphBuf.Point
+			for i := range got {
+				got[i].Flags &= 0x01
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\n", tc.name, i, got, want)
+			}
 		}
 	}
 }
 
 func TestScalingSansHinting(t *testing.T) {
-	testScaling(t, "luxisr-12pt-sans-hinting.txt", nil)
+	testScaling(t, nil)
 }
 
 func TestScalingWithHinting(t *testing.T) {
-	testScaling(t, "luxisr-12pt-with-hinting.txt", &Hinter{})
+	testScaling(t, &Hinter{})
 }
