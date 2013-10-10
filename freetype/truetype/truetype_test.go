@@ -16,14 +16,24 @@ import (
 	"testing"
 )
 
+func parseTestdataFont(name string) (font *Font, testdataIsOptional bool, err error) {
+	b, err := ioutil.ReadFile(fmt.Sprintf("../../testdata/%s.ttf", name))
+	if err != nil {
+		// The "x-foo" fonts are optional tests, as they are not checked
+		// in for copyright or file size reasons.
+		return nil, strings.HasPrefix(name, "x-"), fmt.Errorf("%s: ReadFile: %v", name, err)
+	}
+	font, err = Parse(b)
+	if err != nil {
+		return nil, true, fmt.Errorf("%s: Parse: %v", name, err)
+	}
+	return font, false, nil
+}
+
 // TestParse tests that the luxisr.ttf metrics and glyphs are parsed correctly.
 // The numerical values can be manually verified by examining luxisr.ttx.
 func TestParse(t *testing.T) {
-	b, err := ioutil.ReadFile("../../testdata/luxisr.ttf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	font, err := Parse(b)
+	font, _, err := parseTestdataFont("luxisr")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +84,105 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestIndex(t *testing.T) {
+	testCases := map[string]map[rune]Index{
+		"luxisr": {
+			' ':      3,
+			'!':      4,
+			'A':      36,
+			'V':      57,
+			'É':      101,
+			'ﬂ':      193,
+			'\u22c5': 385,
+			'中':      0,
+		},
+		"x-arial-bold": {
+			' ':      3,
+			'+':      14,
+			'0':      19,
+			'_':      66,
+			'w':      90,
+			'~':      97,
+			'Ä':      98,
+			'ﬂ':      192,
+			'½':      242,
+			'σ':      305,
+			'λ':      540,
+			'ỹ':      1275,
+			'\u04e9': 1319,
+			'中':      0,
+		},
+		"x-deja-vu-sans-oblique": {
+			' ':      3,
+			'*':      13,
+			'Œ':      276,
+			'ω':      861,
+			'‡':      2571,
+			'⊕':      3109,
+			'ﬂ':      4560,
+			'\ufb03': 4561,
+			'\ufffd': 4645,
+			// TODO: '\U0001f640': ???,
+			'中': 0,
+		},
+		"x-droid-sans-japanese": {
+			' ':      0,
+			'\u3000': 3,
+			'\u3041': 25,
+			'\u30fe': 201,
+			'\uff61': 202,
+			'\uff67': 208,
+			'\uff9e': 263,
+			'\uff9f': 264,
+			'\u4e00': 265,
+			'\u557e': 1000,
+			'\u61b6': 2024,
+			'\u6ede': 3177,
+			'\u7505': 3555,
+			'\u81e3': 4602,
+			'\u81e5': 4603,
+			'\u81e7': 4604,
+			'\u81e8': 4605,
+			'\u81ea': 4606,
+			'\u81ed': 4607,
+			'\u81f3': 4608,
+			'\u81f4': 4609,
+			'\u91c7': 5796,
+			'\u9fa0': 6620,
+			'\u203e': 12584,
+		},
+		"x-times-new-roman": {
+			' ':      3,
+			':':      29,
+			'ﬂ':      192,
+			'Ŀ':      273,
+			'♠':      388,
+			'Ŗ':      451,
+			'Σ':      520,
+			'\u200D': 745,
+			'Ẽ':      1216,
+			'\u04e9': 1319,
+			'中':      0,
+		},
+	}
+	for name, wants := range testCases {
+		font, testdataIsOptional, err := parseTestdataFont(name)
+		if err != nil {
+			if testdataIsOptional {
+				t.Log(err)
+			} else {
+				t.Fatal(err)
+			}
+			continue
+		}
+		for r, want := range wants {
+			if got := font.Index(r); got != want {
+				t.Errorf("%s: Index(%q): got %d, want %d", name, r, got, want)
+			}
+		}
+	}
+}
+
 var scalingTestCases = []struct {
 	name string
 	size int32
@@ -87,27 +196,20 @@ var scalingTestCases = []struct {
 	// GlyphBuf.Load, and the unhinted values match C Freetype.
 	{"x-arial-bold", 11, 0},
 	//{"x-deja-vu-sans-oblique", 17, 0},
-	//{"x-droid-sans-japanese", 9, 0},
+	{"x-droid-sans-japanese", 9, 0},
 	//{"x-times-new-roman", 13, 0},
 }
 
 func testScaling(t *testing.T, hinter *Hinter) {
 loop:
 	for _, tc := range scalingTestCases {
-		b, err := ioutil.ReadFile(fmt.Sprintf("../../testdata/%s.ttf", tc.name))
+		font, testdataIsOptional, err := parseTestdataFont(tc.name)
 		if err != nil {
-			// The "x-foo" fonts are optional tests, as they are not checked
-			// in for copyright or file size reasons.
-			if strings.HasPrefix(tc.name, "x-") {
-				t.Logf("%s: ReadFile: %v", tc.name, err)
+			if testdataIsOptional {
+				t.Log(err)
 			} else {
-				t.Errorf("%s: ReadFile: %v", tc.name, err)
+				t.Error(err)
 			}
-			continue loop
-		}
-		font, err := Parse(b)
-		if err != nil {
-			t.Errorf("%s: Parse: %v", tc.name, err)
 			continue loop
 		}
 		hinting := "sans"

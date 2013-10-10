@@ -87,7 +87,7 @@ const (
 
 // A cm holds a parsed cmap entry.
 type cm struct {
-	start, end, delta, offset uint16
+	start, end, delta, offset uint32
 }
 
 // A Font represents a Truetype font.
@@ -111,12 +111,14 @@ type Font struct {
 func (f *Font) parseCmap() error {
 	const (
 		cmapFormat4         = 4
+		cmapFormat12        = 12
 		languageIndependent = 0
 
 		// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
 		// least-significant 16-bit Platform Specific ID.
-		unicodeEncoding   = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
-		microsoftEncoding = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
+		unicodeEncoding       = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
+		microsoftUCS2Encoding = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
+		microsoftUCS4Encoding = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
 	)
 
 	if len(f.cmap) < 4 {
@@ -137,7 +139,7 @@ func (f *Font) parseCmap() error {
 		if pidPsid == unicodeEncoding {
 			offset, found = int(o), true
 			break
-		} else if pidPsid == microsoftEncoding {
+		} else if pidPsid == microsoftUCS2Encoding || pidPsid == microsoftUCS4Encoding {
 			offset, found = int(o), true
 			// We don't break out of the for loop, so that Unicode can override Microsoft.
 		}
@@ -150,39 +152,63 @@ func (f *Font) parseCmap() error {
 	}
 
 	cmapFormat := u16(f.cmap, offset)
-	if cmapFormat != cmapFormat4 {
-		return UnsupportedError(fmt.Sprintf("cmap format: %d", cmapFormat))
-	}
-	language := u16(f.cmap, offset+4)
-	if language != languageIndependent {
-		return UnsupportedError(fmt.Sprintf("language: %d", language))
-	}
-	segCountX2 := int(u16(f.cmap, offset+6))
-	if segCountX2%2 == 1 {
-		return FormatError(fmt.Sprintf("bad segCountX2: %d", segCountX2))
-	}
-	segCount := segCountX2 / 2
-	offset += 14
-	f.cm = make([]cm, segCount)
-	for i := 0; i < segCount; i++ {
-		f.cm[i].end = u16(f.cmap, offset)
+	switch cmapFormat {
+	case cmapFormat4:
+		language := u16(f.cmap, offset+4)
+		if language != languageIndependent {
+			return UnsupportedError(fmt.Sprintf("language: %d", language))
+		}
+		segCountX2 := int(u16(f.cmap, offset+6))
+		if segCountX2%2 == 1 {
+			return FormatError(fmt.Sprintf("bad segCountX2: %d", segCountX2))
+		}
+		segCount := segCountX2 / 2
+		offset += 14
+		f.cm = make([]cm, segCount)
+		for i := 0; i < segCount; i++ {
+			f.cm[i].end = uint32(u16(f.cmap, offset))
+			offset += 2
+		}
 		offset += 2
+		for i := 0; i < segCount; i++ {
+			f.cm[i].start = uint32(u16(f.cmap, offset))
+			offset += 2
+		}
+		for i := 0; i < segCount; i++ {
+			f.cm[i].delta = uint32(u16(f.cmap, offset))
+			offset += 2
+		}
+		for i := 0; i < segCount; i++ {
+			f.cm[i].offset = uint32(u16(f.cmap, offset))
+			offset += 2
+		}
+		f.cmapIndexes = f.cmap[offset:]
+		return nil
+
+	case cmapFormat12:
+		if u16(f.cmap, offset+2) != 0 {
+			return FormatError(fmt.Sprintf("cmap format: % x", f.cmap[offset:offset+4]))
+		}
+		length := u32(f.cmap, offset+4)
+		language := u32(f.cmap, offset+8)
+		if language != languageIndependent {
+			return UnsupportedError(fmt.Sprintf("language: %d", language))
+		}
+		nGroups := u32(f.cmap, offset+12)
+		if length != 12*nGroups+16 {
+			return FormatError("inconsistent cmap length")
+		}
+		offset += 16
+		f.cm = make([]cm, nGroups)
+		for i := uint32(0); i < nGroups; i++ {
+			f.cm[i].start = u32(f.cmap, offset+0)
+			f.cm[i].end = u32(f.cmap, offset+4)
+			f.cm[i].delta = u32(f.cmap, offset+8) - f.cm[i].start
+			offset += 12
+		}
+		return nil
 	}
-	offset += 2
-	for i := 0; i < segCount; i++ {
-		f.cm[i].start = u16(f.cmap, offset)
-		offset += 2
-	}
-	for i := 0; i < segCount; i++ {
-		f.cm[i].delta = u16(f.cmap, offset)
-		offset += 2
-	}
-	for i := 0; i < segCount; i++ {
-		f.cm[i].offset = u16(f.cmap, offset)
-		offset += 2
-	}
-	f.cmapIndexes = f.cmap[offset:]
-	return nil
+	return UnsupportedError(fmt.Sprintf("cmap format: %d", cmapFormat))
 }
 
 func (f *Font) parseHead() error {
@@ -296,8 +322,9 @@ func (f *Font) FUnitsPerEm() int32 {
 
 // Index returns a Font's index for the given rune.
 func (f *Font) Index(x rune) Index {
-	c := uint16(x)
+	c := uint32(x)
 	n := len(f.cm)
+	// TODO: binary search.
 	for i := 0; i < n; i++ {
 		if f.cm[i].start <= c && c <= f.cm[i].end {
 			if f.cm[i].offset == 0 {
