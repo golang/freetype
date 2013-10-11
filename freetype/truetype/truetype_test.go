@@ -177,7 +177,7 @@ func TestIndex(t *testing.T) {
 		}
 		for r, want := range wants {
 			if got := font.Index(r); got != want {
-				t.Errorf("%s: Index(%q): got %d, want %d", name, r, got, want)
+				t.Errorf("%s: Index of %q, aka %U: got %d, want %d", name, r, r, got, want)
 			}
 		}
 	}

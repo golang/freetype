@@ -323,14 +323,17 @@ func (f *Font) FUnitsPerEm() int32 {
 // Index returns a Font's index for the given rune.
 func (f *Font) Index(x rune) Index {
 	c := uint32(x)
-	n := len(f.cm)
-	// TODO: binary search.
-	for i := 0; i < n; i++ {
-		if f.cm[i].start <= c && c <= f.cm[i].end {
-			if f.cm[i].offset == 0 {
-				return Index(c + f.cm[i].delta)
-			}
-			offset := int(f.cm[i].offset) + 2*(i-n+int(c-f.cm[i].start))
+	for i, j := 0, len(f.cm); i < j; {
+		h := i + (j-i)/2
+		cm := &f.cm[h]
+		if c < cm.start {
+			j = h
+		} else if cm.end < c {
+			i = h + 1
+		} else if cm.offset == 0 {
+			return Index(c + cm.delta)
+		} else {
+			offset := int(cm.offset) + 2*(h-len(f.cm)+int(c-cm.start))
 			return Index(u16(f.cmapIndexes, offset))
 		}
 	}
