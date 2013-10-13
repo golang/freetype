@@ -11,7 +11,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -183,6 +183,61 @@ func TestIndex(t *testing.T) {
 	}
 }
 
+// scalingTestParse parses a line of points like
+// -22 -111 1, 178 555 1, 236 555 1, 36 -111 1
+// The line will not have a trailing "\n".
+func scalingTestParse(line string) []Point {
+	if line == "" {
+		return nil
+	}
+	points := make([]Point, 0, 1+strings.Count(line, ","))
+	for len(line) > 0 {
+		s := line
+		if i := strings.Index(line, ","); i != -1 {
+			s, line = line[:i], line[i+1:]
+			for len(line) > 0 && line[0] == ' ' {
+				line = line[1:]
+			}
+		} else {
+			line = ""
+		}
+		i := strings.Index(s, " ")
+		if i == -1 {
+			break
+		}
+		x, _ := strconv.Atoi(s[:i])
+		s = s[i+1:]
+		i = strings.Index(s, " ")
+		if i == -1 {
+			break
+		}
+		y, _ := strconv.Atoi(s[:i])
+		s = s[i+1:]
+		f, _ := strconv.Atoi(s)
+		points = append(points, Point{
+			X:     int32(x),
+			Y:     int32(y),
+			Flags: uint32(f),
+		})
+	}
+	return points
+}
+
+// scalingTestEquals is equivalent to, but faster than, calling
+// reflect.DeepEquals(a, b). It also treats a nil []Point and an empty non-nil
+// []Point as equal.
+func scalingTestEquals(a, b []Point) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, p := range a {
+		if p != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 var scalingTestCases = []struct {
 	name string
 	size int32
@@ -227,21 +282,7 @@ loop:
 		wants := [][]Point{}
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
-			text := scanner.Text()
-			if text == "" {
-				wants = append(wants, []Point{})
-				continue
-			}
-			ss := strings.Split(text, ",")
-			points := make([]Point, len(ss))
-			for i, s := range ss {
-				p := &points[i]
-				if _, err := fmt.Sscanf(s, "%d %d %d", &p.X, &p.Y, &p.Flags); err != nil {
-					t.Errorf("%s: Sscanf: %v", tc.name, err)
-					continue loop
-				}
-			}
-			wants = append(wants, points)
+			wants = append(wants, scalingTestParse(scanner.Text()))
 		}
 		if err := scanner.Err(); err != nil && err != io.EOF {
 			t.Errorf("%s: Scanner: %v", tc.name, err)
@@ -264,7 +305,7 @@ loop:
 			for i := range got {
 				got[i].Flags &= 0x01
 			}
-			if !reflect.DeepEqual(got, want) {
+			if !scalingTestEquals(got, want) {
 				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\n", tc.name, i, got, want)
 			}
 		}
