@@ -57,10 +57,15 @@ func TestParse(t *testing.T) {
 		t.Errorf("Kerning: got %v, want %v", got, want)
 	}
 
-	g0 := NewGlyphBuf()
-	err = g0.Load(font, fupe, i0, nil)
+	g := NewGlyphBuf()
+	err = g.Load(font, fupe, i0, nil)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
+	}
+	g0 := &GlyphBuf{
+		B:     g.B,
+		Point: g.Point,
+		End:   g.End,
 	}
 	g1 := &GlyphBuf{
 		B: Bounds{19, 0, 1342, 1480},
@@ -255,6 +260,8 @@ var scalingTestCases = []struct {
 	{"x-times-new-roman", 13, 0},
 }
 
+// TODO: also test bounding boxes, not just points.
+
 func testScaling(t *testing.T, hinter *Hinter) {
 loop:
 	for _, tc := range scalingTestCases {
@@ -291,10 +298,6 @@ loop:
 
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
-			if tc.name == "x-times-new-roman" && i == 180 {
-				// TODO: figure out why Times New Roman glyph #180 is problematic.
-				continue
-			}
 			// TODO: completely implement hinting. For now, only the first
 			// tc.hintingBrokenAt glyphs of the test case's font are correctly hinted.
 			if hinter != nil && i == tc.hintingBrokenAt {
