@@ -94,7 +94,8 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 }
 
 func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error) {
-	if recursion >= 4 {
+	// The recursion limit here is arbitrary, but defends against malformed glyphs.
+	if recursion >= 32 {
 		return UnsupportedError("excessive compound glyph recursion")
 	}
 	// Find the relevant slice of g.font.glyf.
@@ -126,7 +127,7 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 			return UnsupportedError("negative number of contours")
 		}
 		pp1x = g.font.scale(g.scale * (b.XMin - uhm.LeftSideBearing))
-		if err := g.loadCompound(recursion, glyf); err != nil {
+		if err := g.loadCompound(recursion, glyf, useMyMetrics); err != nil {
 			return err
 		}
 	} else {
@@ -267,7 +268,7 @@ func (g *GlyphBuf) loadSimple(glyf []byte, ne int) (program []byte) {
 	return program
 }
 
-func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte) error {
+func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte, useMyMetrics bool) error {
 	// Flags for decoding a compound glyph. These flags are documented at
 	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
 	const (
@@ -319,7 +320,8 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte) error {
 			}
 		}
 		np0 := len(g.Point)
-		if err := g.load(recursion+1, component, flags&flagUseMyMetrics != 0); err != nil {
+		componentUMM := useMyMetrics && (flags&flagUseMyMetrics != 0)
+		if err := g.load(recursion+1, component, componentUMM); err != nil {
 			return err
 		}
 		if hasTransform {
