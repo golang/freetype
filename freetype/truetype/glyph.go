@@ -286,7 +286,7 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte) error {
 	for offset := loadOffset; ; {
 		flags := u16(glyf, offset)
 		component := Index(u16(glyf, offset+2))
-		dx, dy := int32(0), int32(0)
+		dx, dy, transform, hasTransform := int32(0), int32(0), [4]int32{}, false
 		if flags&flagArg1And2AreWords != 0 {
 			dx = int32(int16(u16(glyf, offset+4)))
 			dy = int32(int16(u16(glyf, offset+6)))
@@ -300,11 +300,37 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte) error {
 			return UnsupportedError("compound glyph transform vector")
 		}
 		if flags&(flagWeHaveAScale|flagWeHaveAnXAndYScale|flagWeHaveATwoByTwo) != 0 {
-			return UnsupportedError("compound glyph scale/transform")
+			hasTransform = true
+			switch {
+			case flags&flagWeHaveAScale != 0:
+				transform[0] = int32(int16(u16(glyf, offset+0)))
+				transform[3] = transform[0]
+				offset += 2
+			case flags&flagWeHaveAnXAndYScale != 0:
+				transform[0] = int32(int16(u16(glyf, offset+0)))
+				transform[3] = int32(int16(u16(glyf, offset+2)))
+				offset += 4
+			case flags&flagWeHaveATwoByTwo != 0:
+				transform[0] = int32(int16(u16(glyf, offset+0)))
+				transform[1] = int32(int16(u16(glyf, offset+2)))
+				transform[2] = int32(int16(u16(glyf, offset+4)))
+				transform[3] = int32(int16(u16(glyf, offset+6)))
+				offset += 8
+			}
 		}
 		np0 := len(g.Point)
 		if err := g.load(recursion+1, component, flags&flagUseMyMetrics != 0); err != nil {
 			return err
+		}
+		if hasTransform {
+			for i := np0; i < len(g.Point); i++ {
+				p := &g.Point[i]
+				newX := int32((int64(p.X)*int64(transform[0])+1<<13)>>14) +
+					int32((int64(p.Y)*int64(transform[2])+1<<13)>>14)
+				newY := int32((int64(p.X)*int64(transform[1])+1<<13)>>14) +
+					int32((int64(p.Y)*int64(transform[3])+1<<13)>>14)
+				p.X, p.Y = newX, newY
+			}
 		}
 		dx = g.font.scale(g.scale * dx)
 		dy = g.font.scale(g.scale * dy)

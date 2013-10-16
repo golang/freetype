@@ -263,7 +263,6 @@ var scalingTestCases = []struct {
 // TODO: also test bounding boxes, not just points.
 
 func testScaling(t *testing.T, hinter *Hinter) {
-loop:
 	for _, tc := range scalingTestCases {
 		font, testdataIsOptional, err := parseTestdataFont(tc.name)
 		if err != nil {
@@ -272,7 +271,7 @@ loop:
 			} else {
 				t.Error(err)
 			}
-			continue loop
+			continue
 		}
 		hinting := "sans"
 		if hinter != nil {
@@ -282,7 +281,7 @@ loop:
 			"../../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hinting))
 		if err != nil {
 			t.Errorf("%s: Open: %v", tc.name, err)
-			continue loop
+			continue
 		}
 		defer f.Close()
 
@@ -293,7 +292,7 @@ loop:
 		}
 		if err := scanner.Err(); err != nil && err != io.EOF {
 			t.Errorf("%s: Scanner: %v", tc.name, err)
-			continue loop
+			continue
 		}
 
 		glyphBuf := NewGlyphBuf()
@@ -305,12 +304,8 @@ loop:
 			}
 
 			if err = glyphBuf.Load(font, tc.size*64, Index(i), hinter); err != nil {
-				if ue, ok := err.(UnsupportedError); ok && ue == "compound glyph scale/transform" {
-					// TODO: implement compound glyph scale/transform.
-					continue loop
-				}
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
-				continue loop
+				continue
 			}
 			got := glyphBuf.Point
 			for i := range got {
