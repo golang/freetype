@@ -78,8 +78,8 @@ const (
 	opNPUSHW    = 0x41 // PUSH N Words
 	opWS        = 0x42 // Write Store
 	opRS        = 0x43 // Read Store
-	opWCVTP     = 0x44
-	opRCVT      = 0x45
+	opWCVTP     = 0x44 // Write Control Value Table in Pixel units
+	opRCVT      = 0x45 // Read Control Value Table entry
 	opGC0       = 0x46
 	opGC1       = 0x47
 	opSCFS      = 0x48
@@ -275,7 +275,7 @@ var popCount = [256]uint8{
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
 	0, 0, q, q, q, q, q, q, q, 0, q, q, 0, 0, 2, 2, // 0x30 - 0x3f
-	0, 0, 2, 1, q, q, q, q, q, q, q, 0, 0, 0, 0, 0, // 0x40 - 0x4f
+	0, 0, 2, 1, 2, 1, q, q, q, q, q, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
 	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f

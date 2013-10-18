@@ -58,6 +58,10 @@ type Hinter struct {
 	// and glyph's contour boundaries.
 	points [numZone][numPointType][]Point
 	ends   []int
+
+	// scaledCVT is the lazily initialized scaled Control Value Table.
+	scaledCVTInitialized bool
+	scaledCVT            []f26dot6
 }
 
 // graphicsState is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
@@ -169,6 +173,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 	h.points[glyphZone][unhinted] = pUnhinted
 	h.points[glyphZone][inFontUnits] = pInFontUnits
 	h.ends = ends
+	h.scaledCVTInitialized = false
 
 	if len(program) > 50000 {
 		return errors.New("truetype: hinting: too many instructions")
@@ -514,7 +519,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opMIAP0, opMIAP1:
 			top -= 2
 			i := h.stack[top]
-			distance := h.cvt(h.stack[top+1])
+			distance := h.getScaledCVT(h.stack[top+1])
 			if h.gs.zp[0] == 0 {
 				p := h.point(0, unhinted, i)
 				q := h.point(0, current, i)
@@ -557,6 +562,13 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				return errors.New("truetype: hinting: invalid data")
 			}
 			h.stack[top-1] = h.store[i]
+
+		case opWCVTP:
+			top -= 2
+			h.setScaledCVT(h.stack[top], f26dot6(h.stack[top+1]))
+
+		case opRCVT:
+			h.stack[top-1] = int32(h.getScaledCVT(h.stack[top-1]))
 
 		case opMPPEM, opMPS:
 			if top >= len(h.stack) {
@@ -867,7 +879,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 			top -= 2
 			i := h.stack[top]
-			cvtDist := h.cvt(h.stack[top+1])
+			cvtDist := h.getScaledCVT(h.stack[top+1])
 			if (cvtDist - h.gs.singleWidth).abs() < h.gs.singleWidthCutIn {
 				if cvtDist >= 0 {
 					cvtDist = +h.gs.singleWidth
@@ -1011,14 +1023,42 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 	return nil
 }
 
-// cvt returns the scaled value from the font's Control Value Table.
-func (h *Hinter) cvt(i int32) f26dot6 {
-	i *= 2
-	if i < 0 || len(h.font.cvt) < int(i) {
+func (h *Hinter) initializeScaledCVT() {
+	h.scaledCVTInitialized = true
+	if n := len(h.font.cvt) / 2; n <= cap(h.scaledCVT) {
+		h.scaledCVT = h.scaledCVT[:n]
+	} else {
+		if n < 32 {
+			n = 32
+		}
+		h.scaledCVT = make([]f26dot6, len(h.font.cvt)/2, n)
+	}
+	for i := range h.scaledCVT {
+		unscaled := uint16(h.font.cvt[2*i])<<8 | uint16(h.font.cvt[2*i+1])
+		h.scaledCVT[i] = f26dot6(h.font.scale(h.scale * int32(int16(unscaled))))
+	}
+}
+
+// getScaledCVT returns the scaled value from the font's Control Value Table.
+func (h *Hinter) getScaledCVT(i int32) f26dot6 {
+	if !h.scaledCVTInitialized {
+		h.initializeScaledCVT()
+	}
+	if i < 0 || len(h.scaledCVT) <= int(i) {
 		return 0
 	}
-	cv := uint16(h.font.cvt[i])<<8 | uint16(h.font.cvt[i+1])
-	return f26dot6(h.font.scale(h.scale * int32(int16(cv))))
+	return h.scaledCVT[i]
+}
+
+// setScaledCVT overrides the scaled value from the font's Control Value Table.
+func (h *Hinter) setScaledCVT(i int32, v f26dot6) {
+	if !h.scaledCVTInitialized {
+		h.initializeScaledCVT()
+	}
+	if i < 0 || len(h.scaledCVT) <= int(i) {
+		return
+	}
+	h.scaledCVT[i] = v
 }
 
 func (h *Hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
