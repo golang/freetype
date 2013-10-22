@@ -472,7 +472,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			p = h.point(1, current, h.gs.rp[2])
 			curP := h.point(0, current, h.gs.rp[1])
 			curRange := dotProduct(f26dot6(p.X-curP.X), f26dot6(p.Y-curP.Y), h.gs.pv)
-
+			if oldRange < 0 {
+				oldRange, curRange = -oldRange, -curRange
+			}
 			for ; h.gs.loop != 0; h.gs.loop-- {
 				top--
 				i := h.stack[top]
@@ -483,8 +485,14 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				newDist := f26dot6(0)
 				if oldDist != 0 {
 					if oldRange != 0 {
-						newDist = f26dot6(
-							(int64(oldDist)*int64(curRange) + int64(oldRange/2)) / int64(oldRange))
+						// Compute and round oldDist * curRange / oldRange.
+						x := int64(oldDist) * int64(curRange)
+						if x < 0 {
+							x -= int64(oldRange) / 2
+						} else {
+							x += int64(oldRange) / 2
+						}
+						newDist = f26dot6(x / int64(oldRange))
 					} else {
 						newDist = -oldDist
 					}
