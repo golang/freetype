@@ -582,3 +582,63 @@ func TestBytecode(t *testing.T) {
 		}
 	}
 }
+
+func TestMove(t *testing.T) {
+	h, p := Hinter{}, Point{}
+	testCases := []struct {
+		pvX, pvY, fvX, fvY f2dot14
+		wantX, wantY       int32
+	}{
+		{+0x4000, +0x0000, +0x4000, +0x0000, +1000, +0},
+		{+0x4000, +0x0000, -0x4000, +0x0000, +1000, +0},
+		{-0x4000, +0x0000, +0x4000, +0x0000, -1000, +0},
+		{-0x4000, +0x0000, -0x4000, +0x0000, -1000, +0},
+		{+0x0000, +0x4000, +0x0000, +0x4000, +0, +1000},
+		{+0x0000, +0x4000, +0x0000, -0x4000, +0, +1000},
+		{+0x4000, +0x0000, +0x2d41, +0x2d41, +1000, +1000},
+		{+0x4000, +0x0000, -0x2d41, +0x2d41, +1000, -1000},
+		{+0x4000, +0x0000, +0x2d41, -0x2d41, +1000, -1000},
+		{+0x4000, +0x0000, -0x2d41, -0x2d41, +1000, +1000},
+		{-0x4000, +0x0000, +0x2d41, +0x2d41, -1000, -1000},
+		{-0x4000, +0x0000, -0x2d41, +0x2d41, -1000, +1000},
+		{-0x4000, +0x0000, +0x2d41, -0x2d41, -1000, +1000},
+		{-0x4000, +0x0000, -0x2d41, -0x2d41, -1000, -1000},
+		{+0x376d, +0x2000, +0x2d41, +0x2d41, +732, +732},
+		{-0x376d, +0x2000, +0x2d41, +0x2d41, -2732, -2732},
+		{+0x376d, +0x2000, +0x2d41, -0x2d41, +2732, -2732},
+		{-0x376d, +0x2000, +0x2d41, -0x2d41, -732, +732},
+		{-0x376d, -0x2000, +0x2d41, +0x2d41, -732, -732},
+		{+0x376d, +0x2000, +0x4000, +0x0000, +1155, +0},
+		{+0x376d, +0x2000, +0x0000, +0x4000, +0, +2000},
+	}
+	for _, tc := range testCases {
+		p = Point{}
+		h.gs.pv = [2]f2dot14{tc.pvX, tc.pvY}
+		h.gs.fv = [2]f2dot14{tc.fvX, tc.fvY}
+		h.move(&p, 1000, true)
+		tx := p.Flags&flagTouchedX != 0
+		ty := p.Flags&flagTouchedY != 0
+		wantTX := tc.fvX != 0
+		wantTY := tc.fvY != 0
+		if p.X != tc.wantX || p.Y != tc.wantY || tx != wantTX || ty != wantTY {
+			t.Errorf("pv=%v, fv=%v\ngot  %d, %d, %t, %t\nwant %d, %d, %t, %t",
+				h.gs.pv, h.gs.fv, p.X, p.Y, tx, ty, tc.wantX, tc.wantY, wantTX, wantTY)
+			continue
+		}
+
+		// Check that p is aligned with the freedom vector.
+		a := int64(p.X) * int64(tc.fvY)
+		b := int64(p.Y) * int64(tc.fvX)
+		if a != b {
+			t.Errorf("pv=%v, fv=%v, p=%v not aligned with fv", h.gs.pv, h.gs.fv, p)
+			continue
+		}
+
+		// Check that the projected p is 1000 away from the origin.
+		dotProd := (int64(p.X)*int64(tc.pvX) + int64(p.Y)*int64(tc.pvY) + 1<<13) >> 14
+		if dotProd != 1000 {
+			t.Errorf("pv=%v, fv=%v, p=%v not 1000 from origin", h.gs.pv, h.gs.fv, p)
+			continue
+		}
+	}
+}

@@ -16,10 +16,10 @@ const (
 	opSPVTCA1   = 0x03 // .
 	opSFVTCA0   = 0x04 // Set Freedom Vector to Coordinate Axis
 	opSFVTCA1   = 0x05 // .
-	opSPVTL0    = 0x06
-	opSPVTL1    = 0x07
-	opSFVTL0    = 0x08
-	opSFVTL1    = 0x09
+	opSPVTL0    = 0x06 // Set Projection Vector To Line
+	opSPVTL1    = 0x07 // .
+	opSFVTL0    = 0x08 // Set Freedom Vector To Line
+	opSFVTL1    = 0x09 // .
 	opSPVFS     = 0x0a // Set Projection Vector From Stack
 	opSFVFS     = 0x0b // Set Freedom Vector From Stack
 	opGPV       = 0x0c // Get Projection Vector
@@ -64,9 +64,9 @@ const (
 	opSHP1      = 0x33
 	opSHC0      = 0x34
 	opSHC1      = 0x35
-	opSHZ0      = 0x36
-	opSHZ1      = 0x37
-	opSHPIX     = 0x38
+	opSHZ0      = 0x36 // SHift Zone using reference point
+	opSHZ1      = 0x37 // .
+	opSHPIX     = 0x38 // SHift point by a PIXel amount
 	opIP        = 0x39 // Interpolate Point
 	opMSIRP0    = 0x3a
 	opMSIRP1    = 0x3b
@@ -271,10 +271,10 @@ const (
 // popCount is the number of stack elements that each opcode pops.
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
-	0, 0, 0, 0, 0, 0, q, q, q, q, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
+	0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
-	0, 0, q, q, q, q, q, q, q, 0, q, q, 0, 0, 2, 2, // 0x30 - 0x3f
+	0, 0, q, q, q, q, 1, 1, 1, 0, q, q, 0, 0, 2, 2, // 0x30 - 0x3f
 	0, 0, 2, 1, 2, 1, q, q, q, q, q, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f

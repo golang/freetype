@@ -10,6 +10,7 @@ package truetype
 
 import (
 	"errors"
+	"math"
 )
 
 const (
@@ -146,6 +147,7 @@ func (h *Hinter) init(f *Font, scale int32) error {
 
 	if rescale {
 		h.scale = scale
+		h.scaledCVTInitialized = false
 
 		h.defaultGS = globalDefaultGS
 
@@ -173,7 +175,6 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 	h.points[glyphZone][unhinted] = pUnhinted
 	h.points[glyphZone][inFontUnits] = pInFontUnits
 	h.ends = ends
-	h.scaledCVTInitialized = false
 
 	if len(program) > 50000 {
 		return errors.New("truetype: hinting: too many instructions")
@@ -223,6 +224,29 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSFVTCA1:
 			h.gs.fv = [2]f2dot14{0x4000, 0}
+
+		case opSPVTL0, opSPVTL1, opSFVTL0, opSFVTL1:
+			top -= 2
+			p1 := h.point(0, current, h.stack[top+0])
+			p2 := h.point(0, current, h.stack[top+1])
+			if p1 == nil || p2 == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			dx := f2dot14(p1.X - p2.X)
+			dy := f2dot14(p1.Y - p2.Y)
+			if dx == 0 && dy == 0 {
+				dx = 0x4000
+			} else if opcode&1 != 0 {
+				// Counter-clockwise rotation.
+				dx, dy = -dy, dx
+			}
+			v := normalize(dx, dy)
+			if opcode < opSFVTL0 {
+				h.gs.pv = v
+				h.gs.dv = v
+			} else {
+				h.gs.fv = v
+			}
 
 		case opSPVFS:
 			top -= 2
@@ -418,7 +442,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				// TODO: metrics compensation.
 				distance = h.round(distance) - distance
 			}
-			h.move(p, distance)
+			h.move(p, distance, true)
 			h.gs.rp[0] = i
 			h.gs.rp[1] = i
 
@@ -456,6 +480,41 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				prevEnd = end
 			}
 
+		case opSHZ0, opSHZ1:
+			top--
+			zonePointer, i, d, ok := h.displacement(opcode&1 == 0)
+			if !ok {
+				return errors.New("truetype: hinting: point out of range")
+			}
+
+			// As per C Freetype, SHZ doesn't move the phantom points, or mark
+			// the points as touched.
+			limit := int32(len(h.points[h.gs.zp[2]][current]))
+			if h.gs.zp[2] == glyphZone {
+				limit -= 4
+			}
+			for j := int32(0); j < limit; j++ {
+				if i != j || h.gs.zp[zonePointer] != h.gs.zp[2] {
+					h.move(h.point(2, current, j), d, false)
+				}
+			}
+
+		case opSHPIX:
+			top--
+			d := f26dot6(h.stack[top])
+			if top < int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
+			}
+			for ; h.gs.loop != 0; h.gs.loop-- {
+				top--
+				p := h.point(2, current, h.stack[top])
+				if p == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				h.move(p, d, true)
+			}
+			h.gs.loop = 1
+
 		case opIP:
 			if top < int(h.gs.loop) {
 				return errors.New("truetype: hinting: stack underflow")
@@ -472,9 +531,6 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			p = h.point(1, current, h.gs.rp[2])
 			curP := h.point(0, current, h.gs.rp[1])
 			curRange := dotProduct(f26dot6(p.X-curP.X), f26dot6(p.Y-curP.Y), h.gs.pv)
-			if oldRange < 0 {
-				oldRange, curRange = -oldRange, -curRange
-			}
 			for ; h.gs.loop != 0; h.gs.loop-- {
 				top--
 				i := h.stack[top]
@@ -485,19 +541,12 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				newDist := f26dot6(0)
 				if oldDist != 0 {
 					if oldRange != 0 {
-						// Compute and round oldDist * curRange / oldRange.
-						x := int64(oldDist) * int64(curRange)
-						if x < 0 {
-							x -= int64(oldRange) / 2
-						} else {
-							x += int64(oldRange) / 2
-						}
-						newDist = f26dot6(x / int64(oldRange))
+						newDist = f26dot6(mulDiv(int64(oldDist), int64(curRange), int64(oldRange)))
 					} else {
 						newDist = -oldDist
 					}
 				}
-				h.move(p, newDist-curDist)
+				h.move(p, newDist-curDist, true)
 			}
 			h.gs.loop = 1
 
@@ -515,7 +564,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				if p == nil {
 					return errors.New("truetype: hinting: point out of range")
 				}
-				h.move(p, -dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv))
+				h.move(p, -dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv), true)
 			}
 			h.gs.loop = 1
 
@@ -544,7 +593,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				// TODO: metrics compensation.
 				distance = h.round(distance)
 			}
-			h.move(p, distance-oldDist)
+			h.move(p, distance-oldDist, true)
 			h.gs.rp[0] = i
 			h.gs.rp[1] = i
 
@@ -874,7 +923,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 			// Move the point.
 			oldDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
-			h.move(p, distance-oldDist)
+			h.move(p, distance-oldDist, true)
 
 		case opMIRP00000, opMIRP00001, opMIRP00010, opMIRP00011,
 			opMIRP00100, opMIRP00101, opMIRP00110, opMIRP00111,
@@ -914,7 +963,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if ref == nil || p == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
+			curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
 
 			if h.gs.autoFlip && oldDist^cvtDist < 0 {
 				cvtDist = -cvtDist
@@ -922,9 +971,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 			// Rounding bit.
 			// TODO: metrics compensation.
-			distance := oldDist
+			distance := cvtDist
 			if opcode&0x04 != 0 {
-				distance = h.round(oldDist)
+				distance = h.round(cvtDist)
 			}
 
 			// Minimum distance bit.
@@ -948,7 +997,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			h.gs.rp[2] = i
 
 			// Move the point.
-			h.move(p, distance-curDist)
+			h.move(p, distance-curDist, true)
 
 		default:
 			return errors.New("truetype: hinting: unrecognized instruction")
@@ -1077,25 +1126,42 @@ func (h *Hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
 	return &points[i]
 }
 
-func (h *Hinter) move(p *Point, distance f26dot6) {
-	if h.gs.fv[0] == 0 {
-		p.Y += int32(distance)
-		p.Flags |= flagTouchedY
-		return
-	}
-	if h.gs.fv[1] == 0 {
-		p.X += int32(distance)
-		p.Flags |= flagTouchedX
-		return
-	}
+func (h *Hinter) move(p *Point, distance f26dot6, touch bool) {
 	fvx := int64(h.gs.fv[0])
-	fvy := int64(h.gs.fv[1])
 	pvx := int64(h.gs.pv[0])
+	if fvx == 0x4000 && pvx == 0x4000 {
+		p.X += int32(distance)
+		if touch {
+			p.Flags |= flagTouchedX
+		}
+		return
+	}
+
+	fvy := int64(h.gs.fv[1])
 	pvy := int64(h.gs.pv[1])
+	if fvy == 0x4000 && pvy == 0x4000 {
+		p.Y += int32(distance)
+		if touch {
+			p.Flags |= flagTouchedY
+		}
+		return
+	}
+
 	fvDotPv := (fvx*pvx + fvy*pvy) >> 14
-	p.X += int32(int64(distance) * fvx / fvDotPv)
-	p.Y += int32(int64(distance) * fvy / fvDotPv)
-	p.Flags |= flagTouchedX | flagTouchedY
+
+	if fvx != 0 {
+		p.X += int32(mulDiv(fvx, int64(distance), fvDotPv))
+		if touch {
+			p.Flags |= flagTouchedX
+		}
+	}
+
+	if fvy != 0 {
+		p.Y += int32(mulDiv(fvy, int64(distance), fvDotPv))
+		if touch {
+			p.Flags |= flagTouchedY
+		}
+	}
 }
 
 func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
@@ -1174,14 +1240,7 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 		} else {
 			if !scaleOK {
 				scaleOK = true
-				numer := int64(unh2+delta2-unh1-delta1) * 0x10000
-				denom := int64(ifu2 - ifu1)
-				if numer >= 0 {
-					numer += denom / 2
-				} else {
-					numer -= denom / 2
-				}
-				scale = numer / denom
+				scale = mulDiv(int64(unh2+delta2-unh1-delta1), 0x10000, int64(ifu2-ifu1))
 			}
 			numer := int64(ifuXY-ifu1) * scale
 			if numer >= 0 {
@@ -1222,6 +1281,20 @@ func (h *Hinter) iupShift(interpY bool, p1, p2, p int) {
 	}
 }
 
+func (h *Hinter) displacement(useZP1 bool) (zonePointer uint32, i int32, d f26dot6, ok bool) {
+	zonePointer, i = uint32(0), h.gs.rp[1]
+	if useZP1 {
+		zonePointer, i = 1, h.gs.rp[2]
+	}
+	p := h.point(zonePointer, current, i)
+	q := h.point(zonePointer, unhinted, i)
+	if p == nil || q == nil {
+		return 0, 0, 0, false
+	}
+	d = dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), h.gs.pv)
+	return zonePointer, i, d, true
+}
+
 // skipInstructionPayload increments pc by the extra data that follows a
 // variable length PUSHB or PUSHW instruction.
 func skipInstructionPayload(program []byte, pc int) (newPC int, ok bool) {
@@ -1251,6 +1324,17 @@ func skipInstructionPayload(program []byte, pc int) (newPC int, ok bool) {
 // f2dot14 is a 2.14 fixed point number.
 type f2dot14 int16
 
+func normalize(x, y f2dot14) [2]f2dot14 {
+	fx, fy := float64(x), float64(y)
+	l := math.Hypot(fx, fy)
+	fx /= l
+	fy /= l
+	return [2]f2dot14{
+		f2dot14(fx * 0x4000),
+		f2dot14(fy * 0x4000),
+	}
+}
+
 // f26dot6 is a 26.6 fixed point number.
 type f26dot6 int32
 
@@ -1272,12 +1356,27 @@ func (x f26dot6) mul(y f26dot6) f26dot6 {
 	return f26dot6(int64(x) * int64(y) >> 6)
 }
 
+// dotProduct returns the dot product of [x, y] and q.
 func dotProduct(x, y f26dot6, q [2]f2dot14) f26dot6 {
 	px := int64(x)
 	py := int64(y)
 	qx := int64(q[0])
 	qy := int64(q[1])
-	return f26dot6((px*qx + py*qy) >> 14)
+	return f26dot6((px*qx + py*qy + 1<<13) >> 14)
+}
+
+// mulDiv returns x*y/z, rounded to the nearest integer.
+func mulDiv(x, y, z int64) int64 {
+	xy := x * y
+	if z < 0 {
+		xy, z = -xy, -z
+	}
+	if xy >= 0 {
+		xy += z / 2
+	} else {
+		xy -= z / 2
+	}
+	return xy / z
 }
 
 // round rounds the given number. The rounding algorithm is described at
