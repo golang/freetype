@@ -627,6 +627,33 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opRCVT:
 			h.stack[top-1] = int32(h.getScaledCVT(h.stack[top-1]))
 
+		case opGC0, opGC1:
+			i := h.stack[top-1]
+			if opcode == opGC0 {
+				p := h.point(2, current, i)
+				h.stack[top-1] = int32(dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv))
+			} else {
+				p := h.point(2, unhinted, i)
+				// Using dv as per C Freetype.
+				h.stack[top-1] = int32(dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.dv))
+			}
+
+		case opMD0, opMD1:
+			top--
+			i, j := h.stack[top-1], h.stack[top]
+			if opcode == opMD1 {
+				p := h.point(0, current, i)
+				q := h.point(1, current, j)
+				h.stack[top-1] = int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), h.gs.pv))
+			} else {
+				// TODO: do we need to check (h.gs.zp[0] == 0 || h.gs.zp[1] == 0)
+				// as C Freetype does, similar to the MDRP instructions?
+				p := h.point(0, unhinted, i)
+				q := h.point(1, unhinted, j)
+				// Use dv for MD0 as in C Freetype.
+				h.stack[top-1] = int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), h.gs.dv))
+			}
+
 		case opMPPEM, opMPS:
 			if top >= len(h.stack) {
 				return errors.New("truetype: hinting: stack overflow")
