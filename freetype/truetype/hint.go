@@ -1023,7 +1023,11 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			// TODO: metrics compensation.
 			distance := cvtDist
 			if opcode&0x04 != 0 {
-				distance = h.round(cvtDist)
+				// The CVT value is only used if close enough to oldDist.
+				if (cvtDist - oldDist).abs() > h.gs.controlValueCutIn {
+					distance = oldDist
+				}
+				distance = h.round(distance)
 			}
 
 			// Minimum distance bit.
