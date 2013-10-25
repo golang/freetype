@@ -68,8 +68,8 @@ const (
 	opSHZ1      = 0x37 // .
 	opSHPIX     = 0x38 // SHift point by a PIXel amount
 	opIP        = 0x39 // Interpolate Point
-	opMSIRP0    = 0x3a
-	opMSIRP1    = 0x3b
+	opMSIRP0    = 0x3a // Move Stack Indirect Relative Point
+	opMSIRP1    = 0x3b // .
 	opALIGNRP   = 0x3c // ALIGN to Reference Point
 	opRTDG      = 0x3d // Round To Double Grid
 	opMIAP0     = 0x3e // Move Indirect Absolute Point
@@ -274,7 +274,7 @@ var popCount = [256]uint8{
 	0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
-	0, 0, q, q, q, q, 1, 1, 1, 0, q, q, 0, 0, 2, 2, // 0x30 - 0x3f
+	0, 0, q, q, q, q, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
 	0, 0, 2, 1, 2, 1, 1, 1, q, 2, 2, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f

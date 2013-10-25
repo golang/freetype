@@ -550,6 +550,29 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			}
 			h.gs.loop = 1
 
+		case opMSIRP0, opMSIRP1:
+			top -= 2
+			i := h.stack[top]
+			distance := f26dot6(h.stack[top+1])
+
+			// TODO: special case h.gs.zp[1] == 0 in C Freetype.
+			ref := h.point(0, current, h.gs.rp[0])
+			p := h.point(1, current, i)
+			if ref == nil || p == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
+
+			// Set-RP0 bit.
+			if opcode == opMSIRP1 {
+				h.gs.rp[0] = i
+			}
+			h.gs.rp[1] = h.gs.rp[0]
+			h.gs.rp[2] = i
+
+			// Move the point.
+			h.move(p, distance-curDist, true)
+
 		case opALIGNRP:
 			if top < int(h.gs.loop) {
 				return errors.New("truetype: hinting: stack underflow")
