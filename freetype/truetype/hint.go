@@ -480,6 +480,24 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				prevEnd = end
 			}
 
+		case opSHP0, opSHP1:
+			if top < int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
+			}
+			_, _, d, ok := h.displacement(opcode&1 == 0)
+			if !ok {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			for ; h.gs.loop != 0; h.gs.loop-- {
+				top--
+				p := h.point(2, current, h.stack[top])
+				if p == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				h.move(p, d, true)
+			}
+			h.gs.loop = 1
+
 		case opSHZ0, opSHZ1:
 			top--
 			zonePointer, i, d, ok := h.displacement(opcode&1 == 0)
@@ -740,6 +758,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opNOT:
 			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
 
+		case opDELTAP1:
+			goto deltap
+
 		case opSDB:
 			top--
 			h.gs.deltaBase = h.stack[top]
@@ -793,6 +814,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			// https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#engine_compensation
 			// This code does not implement engine compensation, as we don't expect to
 			// be used to output on dot-matrix printers.
+
+		case opDELTAP2, opDELTAP3:
+			goto deltap
 
 		case opSROUND, opS45ROUND:
 			top--
@@ -1130,6 +1154,40 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			}
 			continue
 		}
+
+	deltap:
+		top--
+		n := f26dot6(h.stack[top])
+		if top < 2*int(h.gs.loop) {
+			return errors.New("truetype: hinting: stack underflow")
+		}
+		for ; n > 0; n-- {
+			top -= 2
+			p := h.point(0, current, h.stack[top+1])
+			if p == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			b := h.stack[top]
+			c := (b & 0xf0) >> 4
+			switch opcode {
+			case opDELTAP2:
+				c += 16
+			case opDELTAP3:
+				c += 32
+			}
+			c += h.gs.deltaBase
+			if ppem := (h.scale + 1<<5) >> 6; ppem != c {
+				continue
+			}
+			b = (b & 0x0f) - 8
+			if b >= 0 {
+				b++
+			}
+			b = b * 64 / (1 << uint32(h.gs.deltaShift))
+			h.move(p, f26dot6(b), true)
+		}
+		pc++
+		continue
 	}
 	return nil
 }

@@ -60,8 +60,8 @@ const (
 	opMDAP1     = 0x2f // .
 	opIUP0      = 0x30 // Interpolate Untouched Points through the outline
 	opIUP1      = 0x31 // .
-	opSHP0      = 0x32
-	opSHP1      = 0x33
+	opSHP0      = 0x32 // SHift Point using reference point
+	opSHP1      = 0x33 // .
 	opSHC0      = 0x34
 	opSHC1      = 0x35
 	opSHZ0      = 0x36 // SHift Zone using reference point
@@ -103,7 +103,7 @@ const (
 	opAND       = 0x5a // logical AND
 	opOR        = 0x5b // logical OR
 	opNOT       = 0x5c // logical NOT
-	opDELTAP1   = 0x5d
+	opDELTAP1   = 0x5d // DELTA exception P1
 	opSDB       = 0x5e // Set Delta Base in the graphics state
 	opSDS       = 0x5f // Set Delta Shift in the graphics state
 	opADD       = 0x60 // ADD
@@ -123,8 +123,8 @@ const (
 	opNROUND10  = 0x6e // .
 	opNROUND11  = 0x6f // .
 	opWCVTF     = 0x70
-	opDELTAP2   = 0x71
-	opDELTAP3   = 0x72
+	opDELTAP2   = 0x71 // DELTA exception P2
+	opDELTAP3   = 0x72 // DELTA exception P3
 	opDELTAC1   = 0x73
 	opDELTAC2   = 0x74
 	opDELTAC3   = 0x75
@@ -274,11 +274,11 @@ var popCount = [256]uint8{
 	0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
-	0, 0, q, q, q, q, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
+	0, 0, 0, 0, q, q, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
 	0, 0, 2, 1, 2, 1, 1, 1, q, 2, 2, 0, 0, 0, 0, 0, // 0x40 - 0x4f
-	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, q, 1, 1, // 0x50 - 0x5f
+	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, 1, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
-	q, q, q, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
+	q, 1, 1, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
 	q, q, q, q, q, 1, q, q, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
