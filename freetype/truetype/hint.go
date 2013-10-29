@@ -989,11 +989,11 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			}
 
 			// Set-RP0 bit.
+			h.gs.rp[1] = h.gs.rp[0]
+			h.gs.rp[2] = i
 			if opcode&0x10 != 0 {
 				h.gs.rp[0] = i
 			}
-			h.gs.rp[1] = h.gs.rp[0]
-			h.gs.rp[2] = i
 
 			// Move the point.
 			oldDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
@@ -1068,11 +1068,11 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			}
 
 			// Set-RP0 bit.
+			h.gs.rp[1] = h.gs.rp[0]
+			h.gs.rp[2] = i
 			if opcode&0x10 != 0 {
 				h.gs.rp[0] = i
 			}
-			h.gs.rp[1] = h.gs.rp[0]
-			h.gs.rp[2] = i
 
 			// Move the point.
 			h.move(p, distance-curDist, true)
@@ -1438,13 +1438,20 @@ type f2dot14 int16
 
 func normalize(x, y f2dot14) [2]f2dot14 {
 	fx, fy := float64(x), float64(y)
-	l := math.Hypot(fx, fy)
-	fx /= l
-	fy /= l
-	return [2]f2dot14{
-		f2dot14(fx * 0x4000),
-		f2dot14(fy * 0x4000),
+	l := 0x4000 / math.Hypot(fx, fy)
+	fx *= l
+	if fx >= 0 {
+		fx += 0.5
+	} else {
+		fx -= 0.5
 	}
+	fy *= l
+	if fy >= 0 {
+		fy += 0.5
+	} else {
+		fy -= 0.5
+	}
+	return [2]f2dot14{f2dot14(fx), f2dot14(fy)}
 }
 
 // f26dot6 is a 26.6 fixed point number.

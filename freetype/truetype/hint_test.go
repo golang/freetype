@@ -583,6 +583,8 @@ func TestBytecode(t *testing.T) {
 	}
 }
 
+// TestMove tests that the Hinter.move method matches the output of the C
+// Freetype implementation.
 func TestMove(t *testing.T) {
 	h, p := Hinter{}, Point{}
 	testCases := []struct {
@@ -639,6 +641,33 @@ func TestMove(t *testing.T) {
 		if dotProd != 1000 {
 			t.Errorf("pv=%v, fv=%v, p=%v not 1000 from origin", h.gs.pv, h.gs.fv, p)
 			continue
+		}
+	}
+}
+
+// TestNormalize tests that the normalize function matches the output of the C
+// Freetype implementation.
+func TestNormalize(t *testing.T) {
+	testCases := [][2]f2dot14{
+		{-15895, 3974},
+		{-15543, 5181},
+		{-14654, 7327},
+		{-11585, 11585},
+		{0, 16384},
+		{11585, 11585},
+		{14654, 7327},
+		{15543, 5181},
+		{15895, 3974},
+		{16066, 3213},
+		{16161, 2694},
+		{16219, 2317},
+		{16257, 2032},
+		{16284, 1809},
+	}
+	for i, want := range testCases {
+		got := normalize(f2dot14(i)-4, 1)
+		if got != want {
+			t.Errorf("i=%d: got %v, want %v", i, got, want)
 		}
 	}
 }

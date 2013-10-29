@@ -7,7 +7,7 @@ gcc main.c -I/usr/include/freetype2 -lfreetype && ./a.out 12 ../../testdata/luxi
 #include FT_FREETYPE_H
 
 void usage(char** argv) {
-	printf("usage: %s font_size font_file [with_hinting|sans_hinting]\n", argv[0]);
+	fprintf(stderr, "usage: %s font_size font_file [with_hinting|sans_hinting]\n", argv[0]);
 }
 
 int main(int argc, char** argv) {
@@ -15,6 +15,7 @@ int main(int argc, char** argv) {
 	FT_Library library;
 	FT_Face face;
 	FT_Outline* o;
+	FT_Int major, minor, patch;
 	int i, j, font_size, no_hinting;
 
 	if (argc != 4) {
@@ -23,7 +24,7 @@ int main(int argc, char** argv) {
 	}
 	font_size = atoi(argv[1]);
 	if (font_size <= 0) {
-		printf("invalid font_size\n");
+		fprintf(stderr, "invalid font_size\n");
 		usage(argv);
 		return 1;
 	}
@@ -32,33 +33,40 @@ int main(int argc, char** argv) {
 	} else if (!strcmp(argv[3], "sans_hinting")) {
 		no_hinting = 1;
 	} else {
-		printf("neither \"with_hinting\" nor \"sans_hinting\"\n");
+		fprintf(stderr, "neither \"with_hinting\" nor \"sans_hinting\"\n");
 		usage(argv);
 		return 1;
 	};
 	error = FT_Init_FreeType(&library);
 	if (error) {
-		printf("FT_Init_FreeType: error #%d\n", error);
+		fprintf(stderr, "FT_Init_FreeType: error #%d\n", error);
+		return 1;
+	}
+	FT_Library_Version(library, &major, &minor, &patch);
+	if ((major < 2) || ((major == 2) && (minor < 5))) {
+		fprintf(stderr, "%s needs freetype version >= 2.5.\n"
+			"Try setting LD_LIBRARY_PATH=/path/to/freetype_built_from_src/objs/.libs/\n",
+			argv[0]);
 		return 1;
 	}
 	error = FT_New_Face(library, argv[2], 0, &face);
 	if (error) {
-		printf("FT_New_Face: error #%d\n", error);
+		fprintf(stderr, "FT_New_Face: error #%d\n", error);
 		return 1;
 	}
 	error = FT_Set_Char_Size(face, 0, font_size*64, 0, 0);
 	if (error) {
-		printf("FT_Set_Char_Size: error #%d\n", error);
+		fprintf(stderr, "FT_Set_Char_Size: error #%d\n", error);
 		return 1;
 	}
 	for (i = 0; i < face->num_glyphs; i++) {
 		error = FT_Load_Glyph(face, i, no_hinting ? FT_LOAD_NO_HINTING : FT_LOAD_DEFAULT);
 		if (error) {
-			printf("FT_Load_Glyph: glyph %d: error #%d\n", i, error);
+			fprintf(stderr, "FT_Load_Glyph: glyph %d: error #%d\n", i, error);
 			return 1;
 		}
 		if (face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
-			printf("glyph format for glyph %d is not FT_GLYPH_FORMAT_OUTLINE\n", i);
+			fprintf(stderr, "glyph format for glyph %d is not FT_GLYPH_FORMAT_OUTLINE\n", i);
 			return 1;
 		}
 		o = &face->glyph->outline;

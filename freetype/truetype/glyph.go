@@ -171,6 +171,11 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		if g.hinter != nil {
 			g.InFontUnits = g.InFontUnits[:len(g.InFontUnits)-4]
 			g.Unhinted = g.Unhinted[:len(g.Unhinted)-4]
+			if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
+				for i := np0; i < len(g.Point); i++ {
+					g.Point[i].X += dx
+				}
+			}
 		}
 		if np0 != 0 {
 			// The hinting program expects the []End values to be indexed relative
