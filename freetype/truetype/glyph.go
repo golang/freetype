@@ -167,16 +167,17 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		}
 		// Drop the four phantom points.
 		pp1x = g.Point[len(g.Point)-4].X
-		g.Point = g.Point[:len(g.Point)-4]
 		if g.hinter != nil {
-			g.InFontUnits = g.InFontUnits[:len(g.InFontUnits)-4]
-			g.Unhinted = g.Unhinted[:len(g.Unhinted)-4]
 			if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
 				for i := np0; i < len(g.Point); i++ {
 					g.Point[i].X += dx
 				}
+				pp1x = g.Point[len(g.Point)-4].X
 			}
+			g.InFontUnits = g.InFontUnits[:len(g.InFontUnits)-4]
+			g.Unhinted = g.Unhinted[:len(g.Unhinted)-4]
 		}
+		g.Point = g.Point[:len(g.Point)-4]
 		if np0 != 0 {
 			// The hinting program expects the []End values to be indexed relative
 			// to the inner glyph, not the outer glyph, so we delay adding np0 until
