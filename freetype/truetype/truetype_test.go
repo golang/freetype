@@ -53,6 +53,9 @@ func TestParse(t *testing.T) {
 	if got, want := font.HMetric(fupe, i0), (HMetric{1366, 19}); got != want {
 		t.Errorf("HMetric: got %v, want %v", got, want)
 	}
+	if got, want := font.VMetric(fupe, i0), (VMetric{2465, 553}); got != want {
+		t.Errorf("VMetric: got %v, want %v", got, want)
+	}
 	if got, want := font.Kerning(fupe, i0, i1), int32(-144); got != want {
 		t.Errorf("Kerning: got %v, want %v", got, want)
 	}
@@ -253,7 +256,7 @@ var scalingTestCases = []struct {
 }{
 	{"luxisr", 12, -1},
 	{"x-arial-bold", 11, 0},
-	{"x-deja-vu-sans-oblique", 17, 513},
+	{"x-deja-vu-sans-oblique", 17, 2077},
 	{"x-droid-sans-japanese", 9, 0},
 	{"x-times-new-roman", 13, 0},
 }

@@ -34,8 +34,12 @@ type GlyphBuf struct {
 	hinter *Hinter
 	scale  int32
 	// pp1x is the X co-ordinate of the first phantom point.
-	pp1x       int32
+	pp1x int32
+	// metricsSet is whether the glyph's metrics have been set yet. For a
+	// compound glyph, a sub-glyph may override the outer glyph's metrics.
 	metricsSet bool
+	// tmp is a scratch buffer.
+	tmp []Point
 }
 
 // Flags for decoding a glyph's contours. These flags are documented at
@@ -127,31 +131,14 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 			return UnsupportedError("negative number of contours")
 		}
 		pp1x = g.font.scale(g.scale * (b.XMin - uhm.LeftSideBearing))
-		if err := g.loadCompound(recursion, glyf, useMyMetrics); err != nil {
+		if err := g.loadCompound(recursion, b, uhm, i, glyf, useMyMetrics); err != nil {
 			return err
 		}
 	} else {
 		np0, ne0 := len(g.Point), len(g.End)
 		program := g.loadSimple(glyf, ne)
-		// Set the four phantom points. Freetype-Go uses only the first two,
-		// but the hinting bytecode may expect four.
-		g.Point = append(g.Point,
-			Point{X: b.XMin - uhm.LeftSideBearing},
-			Point{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
-			Point{},
-			Point{},
-		)
-		// Scale and hint the glyph.
+		g.addPhantomsAndScale(b, uhm, i, np0, g.hinter != nil)
 		if g.hinter != nil {
-			g.InFontUnits = append(g.InFontUnits, g.Point[np0:]...)
-		}
-		for i := np0; i < len(g.Point); i++ {
-			p := &g.Point[i]
-			p.X = g.font.scale(g.scale * p.X)
-			p.Y = g.font.scale(g.scale * p.Y)
-		}
-		if g.hinter != nil {
-			g.Unhinted = append(g.Unhinted, g.Point[np0:]...)
 			if len(program) != 0 {
 				err := g.hinter.run(
 					program,
@@ -204,7 +191,6 @@ const loadOffset = 10
 
 func (g *GlyphBuf) loadSimple(glyf []byte, ne int) (program []byte) {
 	offset := loadOffset
-
 	for i := 0; i < ne; i++ {
 		g.End = append(g.End, 1+int(u16(glyf, offset)))
 		offset += 2
@@ -274,7 +260,9 @@ func (g *GlyphBuf) loadSimple(glyf []byte, ne int) (program []byte) {
 	return program
 }
 
-func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte, useMyMetrics bool) error {
+func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
+	glyf []byte, useMyMetrics bool) error {
+
 	// Flags for decoding a compound glyph. These flags are documented at
 	// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html.
 	const (
@@ -290,7 +278,9 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte, useMyMetrics bool)
 		flagUseMyMetrics
 		flagOverlapCompound
 	)
-	for offset := loadOffset; ; {
+	np0, ne0 := len(g.Point), len(g.End)
+	offset := loadOffset
+	for {
 		flags := u16(glyf, offset)
 		component := Index(u16(glyf, offset+2))
 		dx, dy, transform, hasTransform := int32(0), int32(0), [4]int32{}, false
@@ -331,8 +321,8 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte, useMyMetrics bool)
 			return err
 		}
 		if hasTransform {
-			for i := np0; i < len(g.Point); i++ {
-				p := &g.Point[i]
+			for j := np0; j < len(g.Point); j++ {
+				p := &g.Point[j]
 				newX := int32((int64(p.X)*int64(transform[0])+1<<13)>>14) +
 					int32((int64(p.Y)*int64(transform[2])+1<<13)>>14)
 				newY := int32((int64(p.X)*int64(transform[1])+1<<13)>>14) +
@@ -346,8 +336,8 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte, useMyMetrics bool)
 			dx = (dx + 32) &^ 63
 			dy = (dy + 32) &^ 63
 		}
-		for i := np0; i < len(g.Point); i++ {
-			p := &g.Point[i]
+		for j := np0; j < len(g.Point); j++ {
+			p := &g.Point[j]
 			p.X += dx
 			p.Y += dy
 		}
@@ -356,8 +346,55 @@ func (g *GlyphBuf) loadCompound(recursion int32, glyf []byte, useMyMetrics bool)
 			break
 		}
 	}
-	// TODO: hint the compound glyph.
-	return nil
+
+	// Hint the compound glyph.
+	if g.hinter == nil || offset+2 > len(glyf) {
+		return nil
+	}
+	instrLen := int(u16(glyf, offset))
+	offset += 2
+	if instrLen == 0 {
+		return nil
+	}
+	program := glyf[offset : offset+instrLen]
+	g.addPhantomsAndScale(b, uhm, i, len(g.Point), false)
+	points := g.Point[np0:]
+	g.Point = g.Point[:len(g.Point)-4]
+	for j := range points {
+		points[j].Flags &^= flagTouchedX | flagTouchedY
+	}
+	// Hinting instructions of a composite glyph completely refer to the
+	// (already) hinted subglyphs.
+	g.tmp = append(g.tmp[:0], points...)
+	return g.hinter.run(program, points, g.tmp, g.tmp, g.End[ne0:])
+}
+
+func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, appendOther bool) {
+	// Add the four phantom points.
+	uvm := g.font.unscaledVMetric(i)
+	g.Point = append(g.Point,
+		Point{X: b.XMin - uhm.LeftSideBearing},
+		Point{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
+		Point{Y: b.YMax + uvm.TopSideBearing},
+		Point{Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
+	)
+	// Scale the points.
+	if appendOther {
+		g.InFontUnits = append(g.InFontUnits, g.Point[np0:]...)
+	}
+	for i := np0; i < len(g.Point); i++ {
+		p := &g.Point[i]
+		p.X = g.font.scale(g.scale * p.X)
+		p.Y = g.font.scale(g.scale * p.Y)
+	}
+	if appendOther {
+		g.Unhinted = append(g.Unhinted, g.Point[np0:]...)
+	}
+	// Round the 2nd and 4th phantom point to the grid.
+	p := &g.Point[len(g.Point)-3]
+	p.X = (p.X + 32) &^ 63
+	p = &g.Point[len(g.Point)-1]
+	p.Y = (p.Y + 32) &^ 63
 }
 
 // TODO: is this necessary? The zero-valued GlyphBuf is perfectly usable.

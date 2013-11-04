@@ -33,8 +33,12 @@ type Bounds struct {
 
 // An HMetric holds the horizontal metrics of a single glyph.
 type HMetric struct {
-	AdvanceWidth    int32
-	LeftSideBearing int32
+	AdvanceWidth, LeftSideBearing int32
+}
+
+// A VMetric holds the vertical metrics of a single glyph.
+type VMetric struct {
+	AdvanceHeight, TopSideBearing int32
 }
 
 // A FormatError reports that the input is not a valid TrueType font.
@@ -94,7 +98,7 @@ type cm struct {
 type Font struct {
 	// Tables sliced from the TTF data. The different tables are documented
 	// at http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html
-	cmap, cvt, fpgm, glyf, head, hhea, hmtx, kern, loca, maxp, prep []byte
+	cmap, cvt, fpgm, glyf, head, hhea, hmtx, kern, loca, maxp, prep, vmtx []byte
 
 	cmapIndexes []byte
 
@@ -344,7 +348,7 @@ func (f *Font) Index(x rune) Index {
 // the given index.
 func (f *Font) unscaledHMetric(i Index) (h HMetric) {
 	j := int(i)
-	if j >= f.nGlyph {
+	if j < 0 || f.nGlyph <= j {
 		return HMetric{}
 	}
 	if j >= f.nHMetric {
@@ -366,6 +370,33 @@ func (f *Font) HMetric(scale int32, i Index) HMetric {
 	h.AdvanceWidth = f.scale(scale * h.AdvanceWidth)
 	h.LeftSideBearing = f.scale(scale * h.LeftSideBearing)
 	return h
+}
+
+// unscaledVMetric returns the unscaled vertical metrics for the glyph with
+// the given index.
+func (f *Font) unscaledVMetric(i Index) (v VMetric) {
+	j := int(i)
+	if j < 0 || f.nGlyph <= j {
+		return VMetric{}
+	}
+	if 4*j+4 <= len(f.vmtx) {
+		return VMetric{
+			AdvanceHeight:  int32(u16(f.vmtx, 4*j)),
+			TopSideBearing: int32(int16(u16(f.vmtx, 4*j+2))),
+		}
+	}
+	return VMetric{
+		AdvanceHeight:  f.fUnitsPerEm,
+		TopSideBearing: 0,
+	}
+}
+
+// VMetric returns the vertical metrics for the glyph with the given index.
+func (f *Font) VMetric(scale int32, i Index) VMetric {
+	v := f.unscaledVMetric(i)
+	v.AdvanceHeight = f.scale(scale * v.AdvanceHeight)
+	v.TopSideBearing = f.scale(scale * v.TopSideBearing)
+	return v
 }
 
 // Kerning returns the kerning for the given glyph pair.
@@ -471,6 +502,8 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			f.maxp, err = readTable(ttf, ttf[x+8:x+16])
 		case "prep":
 			f.prep, err = readTable(ttf, ttf[x+8:x+16])
+		case "vmtx":
+			f.vmtx, err = readTable(ttf, ttf[x+8:x+16])
 		}
 		if err != nil {
 			return
