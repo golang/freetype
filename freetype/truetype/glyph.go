@@ -358,15 +358,29 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 	}
 	program := glyf[offset : offset+instrLen]
 	g.addPhantomsAndScale(b, uhm, i, len(g.Point), false)
-	points := g.Point[np0:]
+	points, ends := g.Point[np0:], g.End[ne0:]
 	g.Point = g.Point[:len(g.Point)-4]
 	for j := range points {
 		points[j].Flags &^= flagTouchedX | flagTouchedY
 	}
+	// Temporarily adjust the ends to be relative to this compound glyph.
+	if np0 != 0 {
+		for i := range ends {
+			ends[i] -= np0
+		}
+	}
 	// Hinting instructions of a composite glyph completely refer to the
 	// (already) hinted subglyphs.
 	g.tmp = append(g.tmp[:0], points...)
-	return g.hinter.run(program, points, g.tmp, g.tmp, g.End[ne0:])
+	if err := g.hinter.run(program, points, g.tmp, g.tmp, ends); err != nil {
+		return err
+	}
+	if np0 != 0 {
+		for i := range ends {
+			ends[i] += np0
+		}
+	}
+	return nil
 }
 
 func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, appendOther bool) {

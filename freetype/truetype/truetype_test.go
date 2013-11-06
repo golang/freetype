@@ -256,9 +256,20 @@ var scalingTestCases = []struct {
 }{
 	{"luxisr", 12, -1},
 	{"x-arial-bold", 11, 0},
-	{"x-deja-vu-sans-oblique", 17, 2077},
+	{"x-deja-vu-sans-oblique", 17, -1},
 	{"x-droid-sans-japanese", 9, 0},
 	{"x-times-new-roman", 13, 0},
+}
+
+var scalingExceptions = map[string]map[int]bool{
+	// TODO: remove these exceptions when C Freetype version 2.5.1 is released:
+	// see http://lists.nongnu.org/archive/html/freetype/2013-11/msg00004.html
+	"x-deja-vu-sans-oblique": map[int]bool{
+		2077: true,
+		2078: true,
+		2171: true,
+		2172: true,
+	},
 }
 
 // TODO: also test bounding boxes, not just points.
@@ -296,12 +307,17 @@ func testScaling(t *testing.T, hinter *Hinter) {
 			continue
 		}
 
+		exceptions := scalingExceptions[tc.name]
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
 			// TODO: completely implement hinting. For now, only the first
 			// tc.hintingBrokenAt glyphs of the test case's font are correctly hinted.
 			if hinter != nil && i == tc.hintingBrokenAt {
 				break
+			}
+
+			if exceptions != nil && exceptions[i] {
+				continue
 			}
 
 			if err = glyphBuf.Load(font, tc.size*64, Index(i), hinter); err != nil {
