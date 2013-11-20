@@ -280,6 +280,55 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opSFVTPV:
 			h.gs.fv = h.gs.pv
 
+		case opISECT:
+			top -= 5
+			p := h.point(2, current, h.stack[top+0])
+			a0 := h.point(1, current, h.stack[top+1])
+			a1 := h.point(1, current, h.stack[top+2])
+			b0 := h.point(0, current, h.stack[top+3])
+			b1 := h.point(0, current, h.stack[top+4])
+			if p == nil || a0 == nil || a1 == nil || b0 == nil || b1 == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+
+			dbx := b1.X - b0.X
+			dby := b1.Y - b0.Y
+			dax := a1.X - a0.X
+			day := a1.Y - a0.Y
+			dx := b0.X - a0.X
+			dy := b0.Y - a0.Y
+			discriminant := mulDiv(int64(dax), int64(-dby), 0x40) +
+				mulDiv(int64(day), int64(dbx), 0x40)
+			dotProduct := mulDiv(int64(dax), int64(dbx), 0x40) +
+				mulDiv(int64(day), int64(dby), 0x40)
+			// The discriminant above is actually a cross product of vectors
+			// da and db. Together with the dot product, they can be used as
+			// surrogates for sine and cosine of the angle between the vectors.
+			// Indeed,
+			//       dotproduct   = |da||db|cos(angle)
+			//       discriminant = |da||db|sin(angle)
+			// We use these equations to reject grazing intersections by
+			// thresholding abs(tan(angle)) at 1/19, corresponding to 3 degrees.
+			absDisc, absDotP := discriminant, dotProduct
+			if absDisc < 0 {
+				absDisc = -absDisc
+			}
+			if absDotP < 0 {
+				absDotP = -absDotP
+			}
+			if 19*absDisc > absDotP {
+				val := mulDiv(int64(dx), int64(-dby), 0x40) +
+					mulDiv(int64(dy), int64(dbx), 0x40)
+				rx := mulDiv(val, int64(dax), discriminant)
+				ry := mulDiv(val, int64(day), discriminant)
+				p.X = a0.X + int32(rx)
+				p.Y = a0.Y + int32(ry)
+			} else {
+				p.X = (a0.X + a1.X + b0.X + b1.X) / 4
+				p.Y = (a0.Y + a1.Y + b0.Y + b1.Y) / 4
+			}
+			p.Flags |= flagTouchedX | flagTouchedY
+
 		case opSRP0, opSRP1, opSRP2:
 			top--
 			h.gs.rp[opcode-opSRP0] = h.stack[top]
@@ -497,6 +546,28 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				h.move(p, d, true)
 			}
 			h.gs.loop = 1
+
+		case opSHC0, opSHC1:
+			top--
+			_, _, d, ok := h.displacement(opcode&1 == 0)
+			if !ok {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			if h.gs.zp[2] == 0 {
+				// TODO: implement this when we have a glyph that does this.
+				return errors.New("hinting: unimplemented SHC instruction")
+			}
+			contour := h.stack[top]
+			if contour < 0 || len(ends) <= int(contour) {
+				return errors.New("truetype: hinting: contour out of range")
+			}
+			j0, j1 := 0, h.ends[contour]
+			if contour > 0 {
+				j0 = h.ends[contour-1]
+			}
+			for j := j0; j < j1; j++ {
+				h.move(h.point(2, current, int32(j)), d, false)
+			}
 
 		case opSHZ0, opSHZ1:
 			top--
@@ -815,8 +886,15 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			// This code does not implement engine compensation, as we don't expect to
 			// be used to output on dot-matrix printers.
 
+		case opWCVTF:
+			top -= 2
+			h.setScaledCVT(h.stack[top], f26dot6(h.font.scale(h.scale*h.stack[top+1])))
+
 		case opDELTAP2, opDELTAP3:
 			goto deltap
+
+		case opDELTAC1, opDELTAC2, opDELTAC3:
+			goto deltac
 
 		case opSROUND, opS45ROUND:
 			top--
@@ -877,6 +955,33 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opSCANCTRL:
 			// We do not support dropout control, as we always rasterize grayscale glyphs.
 			top--
+
+		case opSDPVTL0, opSDPVTL1:
+			top -= 2
+			for i := 0; i < 2; i++ {
+				pt := unhinted
+				if i != 0 {
+					pt = current
+				}
+				p := h.point(1, pt, h.stack[top])
+				q := h.point(2, pt, h.stack[top+1])
+				if p == nil || q == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				dx := f2dot14(p.X - q.X)
+				dy := f2dot14(p.Y - q.Y)
+				if dx == 0 && dy == 0 {
+					dx = 0x4000
+				} else if opcode&1 != 0 {
+					// Counter-clockwise rotation.
+					dx, dy = -dy, dx
+				}
+				if i == 0 {
+					h.gs.dv = normalize(dx, dy)
+				} else {
+					h.gs.pv = normalize(dx, dy)
+				}
+			}
 
 		case opGETINFO:
 			res := int32(0)
@@ -1155,39 +1260,83 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			continue
 		}
 
+		// TODO: merge the deltap and deltac code, when we have enough test cases
+		// (at least full coverage of Arial) to have confidence in re-factoring.
+
 	deltap:
-		top--
-		n := f26dot6(h.stack[top])
-		if top < 2*int(h.gs.loop) {
-			return errors.New("truetype: hinting: stack underflow")
+		{
+			top--
+			n := f26dot6(h.stack[top])
+			if top < 2*int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
+			}
+			for ; n > 0; n-- {
+				top -= 2
+				p := h.point(0, current, h.stack[top+1])
+				if p == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				b := h.stack[top]
+				c := (b & 0xf0) >> 4
+				switch opcode {
+				case opDELTAP2:
+					c += 16
+				case opDELTAP3:
+					c += 32
+				}
+				c += h.gs.deltaBase
+				if ppem := (h.scale + 1<<5) >> 6; ppem != c {
+					continue
+				}
+				b = (b & 0x0f) - 8
+				if b >= 0 {
+					b++
+				}
+				b = b * 64 / (1 << uint32(h.gs.deltaShift))
+				h.move(p, f26dot6(b), true)
+			}
+			pc++
+			continue
 		}
-		for ; n > 0; n-- {
-			top -= 2
-			p := h.point(0, current, h.stack[top+1])
-			if p == nil {
-				return errors.New("truetype: hinting: point out of range")
+
+	deltac:
+		{
+			if !h.scaledCVTInitialized {
+				h.initializeScaledCVT()
 			}
-			b := h.stack[top]
-			c := (b & 0xf0) >> 4
-			switch opcode {
-			case opDELTAP2:
-				c += 16
-			case opDELTAP3:
-				c += 32
+			top--
+			n := f26dot6(h.stack[top])
+			if top < 2*int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
 			}
-			c += h.gs.deltaBase
-			if ppem := (h.scale + 1<<5) >> 6; ppem != c {
-				continue
+			for ; n > 0; n-- {
+				top -= 2
+				b := h.stack[top]
+				c := (b & 0xf0) >> 4
+				switch opcode {
+				case opDELTAC2:
+					c += 16
+				case opDELTAC3:
+					c += 32
+				}
+				c += h.gs.deltaBase
+				if ppem := (h.scale + 1<<5) >> 6; ppem != c {
+					continue
+				}
+				b = (b & 0x0f) - 8
+				if b >= 0 {
+					b++
+				}
+				b = b * 64 / (1 << uint32(h.gs.deltaShift))
+				a := h.stack[top+1]
+				if a < 0 || len(h.scaledCVT) <= int(a) {
+					return errors.New("truetype: hinting: index out of range")
+				}
+				h.scaledCVT[a] += f26dot6(b)
 			}
-			b = (b & 0x0f) - 8
-			if b >= 0 {
-				b++
-			}
-			b = b * 64 / (1 << uint32(h.gs.deltaShift))
-			h.move(p, f26dot6(b), true)
+			pc++
+			continue
 		}
-		pc++
-		continue
 	}
 	return nil
 }

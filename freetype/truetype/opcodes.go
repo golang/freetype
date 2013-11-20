@@ -25,7 +25,7 @@ const (
 	opGPV       = 0x0c // Get Projection Vector
 	opGFV       = 0x0d // Get Freedom Vector
 	opSFVTPV    = 0x0e // Set Freedom Vector To Projection Vector
-	opISECT     = 0x0f
+	opISECT     = 0x0f // moves point p to the InterSECTion of two lines
 	opSRP0      = 0x10 // Set Reference Point 0
 	opSRP1      = 0x11 // Set Reference Point 1
 	opSRP2      = 0x12 // Set Reference Point 2
@@ -62,8 +62,8 @@ const (
 	opIUP1      = 0x31 // .
 	opSHP0      = 0x32 // SHift Point using reference point
 	opSHP1      = 0x33 // .
-	opSHC0      = 0x34
-	opSHC1      = 0x35
+	opSHC0      = 0x34 // SHift Contour using reference point
+	opSHC1      = 0x35 // .
 	opSHZ0      = 0x36 // SHift Zone using reference point
 	opSHZ1      = 0x37 // .
 	opSHPIX     = 0x38 // SHift point by a PIXel amount
@@ -122,12 +122,12 @@ const (
 	opNROUND01  = 0x6d // .
 	opNROUND10  = 0x6e // .
 	opNROUND11  = 0x6f // .
-	opWCVTF     = 0x70
+	opWCVTF     = 0x70 // Write Control Value Table in Funits
 	opDELTAP2   = 0x71 // DELTA exception P2
 	opDELTAP3   = 0x72 // DELTA exception P3
-	opDELTAC1   = 0x73
-	opDELTAC2   = 0x74
-	opDELTAC3   = 0x75
+	opDELTAC1   = 0x73 // DELTA exception C1
+	opDELTAC2   = 0x74 // DELTA exception C2
+	opDELTAC3   = 0x75 // DELTA exception C3
 	opSROUND    = 0x76 // Super ROUND
 	opS45ROUND  = 0x77 // Super ROUND 45 degrees
 	opJROT      = 0x78 // Jump Relative On True
@@ -144,8 +144,8 @@ const (
 	op_0x83     = 0x83
 	op_0x84     = 0x84
 	opSCANCTRL  = 0x85 // SCAN conversion ConTRoL
-	opSDPVTL0   = 0x86
-	opSDPVTL1   = 0x87
+	opSDPVTL0   = 0x86 // Set Dual Projection Vector To Line
+	opSDPVTL1   = 0x87 // .
 	opGETINFO   = 0x88 // GET INFOrmation
 	opIDEF      = 0x89 // Instruction DEFinition
 	opROLL      = 0x8a // ROLL the top three stack elements
@@ -271,15 +271,15 @@ const (
 // popCount is the number of stack elements that each opcode pops.
 var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
-	0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, q, // 0x00 - 0x0f
+	0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, 5, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
-	0, 0, 0, 0, q, q, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
+	0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
 	0, 0, 2, 1, 2, 1, 1, 1, q, 2, 2, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, 1, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
-	q, 1, 1, q, q, q, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
-	q, q, q, q, q, 1, q, q, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
+	2, 1, 1, 1, 1, 1, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
+	q, q, q, q, q, 1, 2, 2, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf
