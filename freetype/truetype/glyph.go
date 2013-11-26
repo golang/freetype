@@ -137,7 +137,8 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 	} else {
 		np0, ne0 := len(g.Point), len(g.End)
 		program := g.loadSimple(glyf, ne)
-		g.addPhantomsAndScale(b, uhm, i, np0, g.hinter != nil)
+		g.addPhantomsAndScale(b, uhm, i, np0, true)
+		pp1x = g.Point[len(g.Point)-4].X
 		if g.hinter != nil {
 			if len(program) != 0 {
 				err := g.hinter.run(
@@ -151,16 +152,7 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 					return err
 				}
 			}
-		}
-		// Drop the four phantom points.
-		pp1x = g.Point[len(g.Point)-4].X
-		if g.hinter != nil {
-			if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
-				for i := np0; i < len(g.Point); i++ {
-					g.Point[i].X += dx
-				}
-				pp1x = g.Point[len(g.Point)-4].X
-			}
+			// Drop the four phantom points.
 			g.InFontUnits = g.InFontUnits[:len(g.InFontUnits)-4]
 			g.Unhinted = g.Unhinted[:len(g.Unhinted)-4]
 		}
@@ -383,7 +375,7 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 	return nil
 }
 
-func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, appendOther bool) {
+func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, simple bool) {
 	// Add the four phantom points.
 	uvm := g.font.unscaledVMetric(i)
 	g.Point = append(g.Point,
@@ -393,7 +385,7 @@ func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, 
 		Point{Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
 	)
 	// Scale the points.
-	if appendOther {
+	if simple && g.hinter != nil {
 		g.InFontUnits = append(g.InFontUnits, g.Point[np0:]...)
 	}
 	for i := np0; i < len(g.Point); i++ {
@@ -401,8 +393,15 @@ func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, 
 		p.X = g.font.scale(g.scale * p.X)
 		p.Y = g.font.scale(g.scale * p.Y)
 	}
-	if appendOther {
+	if simple && g.hinter != nil {
 		g.Unhinted = append(g.Unhinted, g.Point[np0:]...)
+		// Round the 1st phantom point to the grid, shifting all other points equally.
+		pp1x := g.Point[len(g.Point)-4].X
+		if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
+			for i := np0; i < len(g.Point); i++ {
+				g.Point[i].X += dx
+			}
+		}
 	}
 	// Round the 2nd and 4th phantom point to the grid.
 	p := &g.Point[len(g.Point)-3]
