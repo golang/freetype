@@ -545,7 +545,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSHC0, opSHC1:
 			top--
-			_, _, d, ok := h.displacement(opcode&1 == 0)
+			zonePointer, i, d, ok := h.displacement(opcode&1 == 0)
 			if !ok {
 				return errors.New("truetype: hinting: point out of range")
 			}
@@ -557,12 +557,15 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if contour < 0 || len(ends) <= int(contour) {
 				return errors.New("truetype: hinting: contour out of range")
 			}
-			j0, j1 := 0, h.ends[contour]
+			j0, j1 := int32(0), int32(h.ends[contour])
 			if contour > 0 {
-				j0 = h.ends[contour-1]
+				j0 = int32(h.ends[contour-1])
 			}
+			move := h.gs.zp[zonePointer] != h.gs.zp[2]
 			for j := j0; j < j1; j++ {
-				h.move(h.point(2, current, int32(j)), d, false)
+				if move || j != i {
+					h.move(h.point(2, current, j), d, false)
+				}
 			}
 
 		case opSHZ0, opSHZ1:
@@ -1149,7 +1152,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			distance := cvtDist
 			if opcode&0x04 != 0 {
 				// The CVT value is only used if close enough to oldDist.
-				if (cvtDist - oldDist).abs() > h.gs.controlValueCutIn {
+				if (h.gs.zp[0] == h.gs.zp[1]) &&
+					((cvtDist - oldDist).abs() > h.gs.controlValueCutIn) {
+
 					distance = oldDist
 				}
 				distance = h.round(distance)
