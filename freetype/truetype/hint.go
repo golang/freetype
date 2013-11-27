@@ -250,16 +250,12 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSPVFS:
 			top -= 2
-			h.gs.pv[0] = f2dot14(h.stack[top+0])
-			h.gs.pv[1] = f2dot14(h.stack[top+1])
-			// TODO: normalize h.gs.pv ??
-			// TODO: h.gs.dv = h.gs.pv ??
+			h.gs.pv = normalize(f2dot14(h.stack[top]), f2dot14(h.stack[top+1]))
+			h.gs.dv = h.gs.pv
 
 		case opSFVFS:
 			top -= 2
-			h.gs.fv[0] = f2dot14(h.stack[top+0])
-			h.gs.fv[1] = f2dot14(h.stack[top+1])
-			// TODO: normalize h.gs.fv ??
+			h.gs.fv = normalize(f2dot14(h.stack[top]), f2dot14(h.stack[top+1]))
 
 		case opGPV:
 			if top+1 >= len(h.stack) {
@@ -1624,13 +1620,43 @@ func (x f26dot6) mul(y f26dot6) f26dot6 {
 	return f26dot6(int64(x) * int64(y) >> 6)
 }
 
-// dotProduct returns the dot product of [x, y] and q.
+// dotProduct returns the dot product of [x, y] and q. It is almost the same as
+//	px := int64(x)
+//	py := int64(y)
+//	qx := int64(q[0])
+//	qy := int64(q[1])
+//	return f26dot6((px*qx + py*qy + 1<<13) >> 14)
+// except that the computation is done with 32-bit integers to produce exactly
+// the same rounding behavior as C Freetype.
 func dotProduct(x, y f26dot6, q [2]f2dot14) f26dot6 {
-	px := int64(x)
-	py := int64(y)
-	qx := int64(q[0])
-	qy := int64(q[1])
-	return f26dot6((px*qx + py*qy + 1<<13) >> 14)
+	// Compute x*q[0] as 64-bit value.
+	l := uint32((int32(x) & 0xFFFF) * int32(q[0]))
+	m := (int32(x) >> 16) * int32(q[0])
+
+	lo1 := l + (uint32(m) << 16)
+	hi1 := (m >> 16) + (int32(l) >> 31) + bool2int32(lo1 < l)
+
+	// Compute y*q[1] as 64-bit value.
+	l = uint32((int32(y) & 0xFFFF) * int32(q[1]))
+	m = (int32(y) >> 16) * int32(q[1])
+
+	lo2 := l + (uint32(m) << 16)
+	hi2 := (m >> 16) + (int32(l) >> 31) + bool2int32(lo2 < l)
+
+	// Add them.
+	lo := lo1 + lo2
+	hi := hi1 + hi2 + bool2int32(lo < lo1)
+
+	// Divide the result by 2^14 with rounding.
+	s := hi >> 31
+	l = lo + uint32(s)
+	hi += s + bool2int32(l < lo)
+	lo = l
+
+	l = lo + 0x2000
+	hi += bool2int32(l < lo)
+
+	return f26dot6((uint32(hi) << 18) | (l >> 14))
 }
 
 // mulDiv returns x*y/z, rounded to the nearest integer.
