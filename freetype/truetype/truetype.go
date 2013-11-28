@@ -98,7 +98,7 @@ type cm struct {
 type Font struct {
 	// Tables sliced from the TTF data. The different tables are documented
 	// at http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html
-	cmap, cvt, fpgm, glyf, head, hhea, hmtx, kern, loca, maxp, prep, vmtx []byte
+	cmap, cvt, fpgm, glyf, head, hhea, hmtx, kern, loca, maxp, os2, prep, vmtx []byte
 
 	cmapIndexes []byte
 
@@ -373,8 +373,8 @@ func (f *Font) HMetric(scale int32, i Index) HMetric {
 }
 
 // unscaledVMetric returns the unscaled vertical metrics for the glyph with
-// the given index.
-func (f *Font) unscaledVMetric(i Index) (v VMetric) {
+// the given index. yMax is the top of the glyph's bounding box.
+func (f *Font) unscaledVMetric(i Index, yMax int32) (v VMetric) {
 	j := int(i)
 	if j < 0 || f.nGlyph <= j {
 		return VMetric{}
@@ -385,6 +385,19 @@ func (f *Font) unscaledVMetric(i Index) (v VMetric) {
 			TopSideBearing: int32(int16(u16(f.vmtx, 4*j+2))),
 		}
 	}
+	// The OS/2 table has grown over time.
+	// https://developer.apple.com/fonts/TTRefMan/RM06/Chap6OS2.html
+	// says that it was originally 68 bytes. Optional fields, including
+	// the ascender and descender, are described at
+	// http://www.microsoft.com/typography/otspec/os2.htm
+	if len(f.os2) >= 72 {
+		sTypoAscender := int32(int16(u16(f.os2, 68)))
+		sTypoDescender := int32(int16(u16(f.os2, 70)))
+		return VMetric{
+			AdvanceHeight:  sTypoAscender - sTypoDescender,
+			TopSideBearing: sTypoAscender - yMax,
+		}
+	}
 	return VMetric{
 		AdvanceHeight:  f.fUnitsPerEm,
 		TopSideBearing: 0,
@@ -393,7 +406,8 @@ func (f *Font) unscaledVMetric(i Index) (v VMetric) {
 
 // VMetric returns the vertical metrics for the glyph with the given index.
 func (f *Font) VMetric(scale int32, i Index) VMetric {
-	v := f.unscaledVMetric(i)
+	// TODO: should 0 be bounds.YMax?
+	v := f.unscaledVMetric(i, 0)
 	v.AdvanceHeight = f.scale(scale * v.AdvanceHeight)
 	v.TopSideBearing = f.scale(scale * v.TopSideBearing)
 	return v
@@ -500,6 +514,8 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			f.loca, err = readTable(ttf, ttf[x+8:x+16])
 		case "maxp":
 			f.maxp, err = readTable(ttf, ttf[x+8:x+16])
+		case "OS/2":
+			f.os2, err = readTable(ttf, ttf[x+8:x+16])
 		case "prep":
 			f.prep, err = readTable(ttf, ttf[x+8:x+16])
 		case "vmtx":

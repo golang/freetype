@@ -377,12 +377,12 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 
 func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, simple bool) {
 	// Add the four phantom points.
-	uvm := g.font.unscaledVMetric(i)
+	uvm := g.font.unscaledVMetric(i, b.YMax)
 	g.Point = append(g.Point,
 		Point{X: b.XMin - uhm.LeftSideBearing},
 		Point{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
-		Point{Y: b.YMax + uvm.TopSideBearing},
-		Point{Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
+		Point{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing},
+		Point{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
 	)
 	// Scale the points.
 	if simple && g.hinter != nil {
