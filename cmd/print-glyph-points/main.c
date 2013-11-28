@@ -43,12 +43,7 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 	FT_Library_Version(library, &major, &minor, &patch);
-	if ((major < 2) || ((major == 2) && (minor < 5))) {
-		fprintf(stderr, "%s needs freetype version >= 2.5.\n"
-			"Try setting LD_LIBRARY_PATH=/path/to/freetype_built_from_src/objs/.libs/\n",
-			argv[0]);
-		return 1;
-	}
+	printf("freetype version %d.%d.%d\n", major, minor, patch);
 	error = FT_New_Face(library, argv[2], 0, &face);
 	if (error) {
 		fprintf(stderr, "FT_New_Face: error #%d\n", error);

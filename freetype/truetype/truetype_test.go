@@ -262,9 +262,14 @@ var scalingTestCases = []struct {
 }
 
 var scalingExceptions = map[string]map[int]bool{
-	// TODO: remove these exceptions when C Freetype version 2.5.1 is released:
+	// TODO: fix these exceptions now that C Freetype version 2.5.1 is released:
 	// see http://lists.nongnu.org/archive/html/freetype/2013-11/msg00004.html
 	"x-deja-vu-sans-oblique": map[int]bool{
+		269:  true,
+		733:  true,
+		734:  true,
+		2071: true,
+		2072: true,
 		2077: true,
 		2078: true,
 		2171: true,
@@ -299,6 +304,23 @@ func testScaling(t *testing.T, hinter *Hinter) {
 
 		wants := [][]Point{}
 		scanner := bufio.NewScanner(f)
+		if scanner.Scan() {
+			major, minor, patch := 0, 0, 0
+			_, err := fmt.Sscanf(scanner.Text(), "freetype version %d.%d.%d", &major, &minor, &patch)
+			if err != nil {
+				t.Errorf("%s: version information: %v", tc.name, err)
+			}
+			if (major < 2) || (major == 2 && minor < 5) || (major == 2 && minor == 5 && patch < 1) {
+				t.Errorf("%s: need freetype version >= 2.5.1.\n"+
+					"Try setting LD_LIBRARY_PATH=/path/to/freetype_built_from_src/objs/.libs/\n"+
+					"and re-running testdata/make-other-hinting-txts.sh",
+					tc.name)
+				continue
+			}
+		} else {
+			t.Errorf("%s: no version information", tc.name)
+			continue
+		}
 		for scanner.Scan() {
 			wants = append(wants, scalingTestParse(scanner.Text()))
 		}
