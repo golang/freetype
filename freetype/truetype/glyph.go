@@ -394,7 +394,6 @@ func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, 
 		p.Y = g.font.scale(g.scale * p.Y)
 	}
 	if simple && g.hinter != nil {
-		g.Unhinted = append(g.Unhinted, g.Point[np0:]...)
 		// Round the 1st phantom point to the grid, shifting all other points equally.
 		pp1x := g.Point[len(g.Point)-4].X
 		if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
@@ -402,6 +401,7 @@ func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, 
 				g.Point[i].X += dx
 			}
 		}
+		g.Unhinted = append(g.Unhinted, g.Point[np0:]...)
 	}
 	// Round the 2nd and 4th phantom point to the grid.
 	p := &g.Point[len(g.Point)-3]
