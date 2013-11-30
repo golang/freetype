@@ -81,6 +81,7 @@ type graphicsState struct {
 	loop int32
 	// Rounding policy.
 	roundPeriod, roundPhase, roundThreshold f26dot6
+	roundSuper45                            bool
 	// Auto-flip.
 	autoFlip bool
 }
@@ -97,6 +98,7 @@ var globalDefaultGS = graphicsState{
 	loop:              1,
 	roundPeriod:       1 << 6, // 1 as an f26dot6.
 	roundThreshold:    1 << 5, // 1/2 as an f26dot6.
+	roundSuper45:      false,
 	autoFlip:          true,
 }
 
@@ -350,11 +352,13 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			h.gs.roundPeriod = 1 << 6
 			h.gs.roundPhase = 0
 			h.gs.roundThreshold = 1 << 5
+			h.gs.roundSuper45 = false
 
 		case opRTHG:
 			h.gs.roundPeriod = 1 << 6
 			h.gs.roundPhase = 1 << 5
 			h.gs.roundThreshold = 1 << 5
+			h.gs.roundSuper45 = false
 
 		case opSMD:
 			top--
@@ -683,6 +687,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			h.gs.roundPeriod = 1 << 5
 			h.gs.roundPhase = 0
 			h.gs.roundThreshold = 1 << 4
+			h.gs.roundSuper45 = false
 
 		case opMIAP0, opMIAP1:
 			top -= 2
@@ -905,7 +910,8 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			case 2:
 				h.gs.roundPeriod = 1 << 7
 			}
-			if opcode == opS45ROUND {
+			h.gs.roundSuper45 = opcode == opS45ROUND
+			if h.gs.roundSuper45 {
 				// The spec says to multiply by √2, but the C Freetype code says 1/√2.
 				// We go with 1/√2.
 				h.gs.roundPeriod *= 46341
@@ -936,16 +942,19 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			h.gs.roundPeriod = 0
 			h.gs.roundPhase = 0
 			h.gs.roundThreshold = 0
+			h.gs.roundSuper45 = false
 
 		case opRUTG:
 			h.gs.roundPeriod = 1 << 6
 			h.gs.roundPhase = 0
 			h.gs.roundThreshold = 1<<6 - 1
+			h.gs.roundSuper45 = false
 
 		case opRDTG:
 			h.gs.roundPeriod = 1 << 6
 			h.gs.roundPhase = 0
 			h.gs.roundThreshold = 0
+			h.gs.roundSuper45 = false
 
 		case opSANGW, opAA:
 			// These ops are "anachronistic" and no longer used.
@@ -1686,17 +1695,29 @@ func (h *Hinter) round(x f26dot6) f26dot6 {
 		return x
 	}
 	if x >= 0 {
-		ret := (x - h.gs.roundPhase + h.gs.roundThreshold) & -h.gs.roundPeriod
+		ret := x - h.gs.roundPhase + h.gs.roundThreshold
+		if h.gs.roundSuper45 {
+			ret /= h.gs.roundPeriod
+			ret *= h.gs.roundPeriod
+		} else {
+			ret &= -h.gs.roundPeriod
+		}
 		if x != 0 && ret < 0 {
 			ret = 0
 		}
 		return ret + h.gs.roundPhase
 	}
-	ret := -((-x - h.gs.roundPhase + h.gs.roundThreshold) & -h.gs.roundPeriod)
-	if ret > 0 {
+	ret := -x - h.gs.roundPhase + h.gs.roundThreshold
+	if h.gs.roundSuper45 {
+		ret /= h.gs.roundPeriod
+		ret *= h.gs.roundPeriod
+	} else {
+		ret &= -h.gs.roundPeriod
+	}
+	if ret < 0 {
 		ret = 0
 	}
-	return ret - h.gs.roundPhase
+	return -ret - h.gs.roundPhase
 }
 
 func bool2int32(b bool) int32 {
