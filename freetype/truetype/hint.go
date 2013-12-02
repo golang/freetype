@@ -568,7 +568,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			move := h.gs.zp[zonePointer] != h.gs.zp[2]
 			for j := j0; j < j1; j++ {
 				if move || j != i {
-					h.move(h.point(2, current, j), d, false)
+					h.move(h.point(2, current, j), d, true)
 				}
 			}
 

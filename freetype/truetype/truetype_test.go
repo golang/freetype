@@ -232,18 +232,16 @@ func scalingTestParse(line string) []Point {
 }
 
 // scalingTestEquals is equivalent to, but faster than, calling
-// reflect.DeepEquals(a, b). It also treats a nil []Point and an empty non-nil
-// []Point as equal.
-func scalingTestEquals(a, b []Point) bool {
-	if len(a) != len(b) {
-		return false
-	}
+// reflect.DeepEquals(a, b), and also returns the index of the first non-equal
+// element. It also treats a nil []Point and an empty non-nil []Point as equal.
+// a and b must have equal length.
+func scalingTestEquals(a, b []Point) (index int, equals bool) {
 	for i, p := range a {
 		if p != b[i] {
-			return false
+			return i, false
 		}
 	}
-	return true
+	return 0, true
 }
 
 var scalingTestCases = []struct {
@@ -255,7 +253,7 @@ var scalingTestCases = []struct {
 	hintingBrokenAt int
 }{
 	{"luxisr", 12, -1},
-	{"x-arial-bold", 11, 1162},
+	{"x-arial-bold", 11, -1},
 	{"x-deja-vu-sans-oblique", 17, -1},
 	{"x-droid-sans-japanese", 9, 0},
 	{"x-times-new-roman", 13, 0},
@@ -329,8 +327,15 @@ func testScaling(t *testing.T, hinter *Hinter) {
 			for i := range got {
 				got[i].Flags &= 0x01
 			}
-			if !scalingTestEquals(got, want) {
-				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\n", tc.name, i, got, want)
+			if len(got) != len(want) {
+				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\ndifferent slice lengths: %d versus %d",
+					tc.name, i, got, want, len(got), len(want))
+				continue
+			}
+			if index, equals := scalingTestEquals(got, want); !equals {
+				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\nat index %d: %v versus %v",
+					tc.name, i, got, want, index, got[index], want[index])
+				continue
 			}
 		}
 	}
