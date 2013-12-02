@@ -33,7 +33,12 @@ type GlyphBuf struct {
 	font   *Font
 	hinter *Hinter
 	scale  int32
-	// pp1x is the X co-ordinate of the first phantom point.
+	// phantomPoints are the co-ordinates of the synthetic phantom points
+	// used for hinting and bounding box calculations.
+	phantomPoints [4]Point
+	// pp1x is the X co-ordinate of the first phantom point. The '1' is
+	// using 1-based indexing; pp1x is almost always phantomPoints[0].X.
+	// TODO: eliminate this and consistently use phantomPoints[0].X.
 	pp1x int32
 	// metricsSet is whether the glyph's metrics have been set yet. For a
 	// compound glyph, a sub-glyph may override the outer glyph's metrics.
@@ -78,6 +83,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	g.hinter = h
 	g.scale = scale
 	g.pp1x = 0
+	g.phantomPoints = [4]Point{}
 	g.metricsSet = false
 
 	if h != nil {
@@ -88,9 +94,16 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	if err := g.load(0, i, true); err != nil {
 		return err
 	}
-	if g.pp1x != 0 {
+	// TODO: this selection of either g.pp1x or g.phantomPoints[0].X isn't ideal,
+	// and should be cleaned up once we have all the testScaling tests passing,
+	// plus additional tests for Freetype-Go's bounding boxes matching C Freetype's.
+	pp1x := g.pp1x
+	if h != nil {
+		pp1x = g.phantomPoints[0].X
+	}
+	if pp1x != 0 {
 		for i := range g.Point {
-			g.Point[i].X -= g.pp1x
+			g.Point[i].X -= pp1x
 		}
 		// TODO: also adjust g.B?
 	}
@@ -124,6 +137,13 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		YMax: int32(int16(u16(glyf, 8))),
 	}
 	uhm, pp1x := g.font.unscaledHMetric(i), int32(0)
+	uvm := g.font.unscaledVMetric(i, b.YMax)
+	g.phantomPoints = [4]Point{
+		{X: b.XMin - uhm.LeftSideBearing},
+		{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
+		{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing},
+		{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
+	}
 	if ne < 0 {
 		if ne != -1 {
 			// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
@@ -137,7 +157,7 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 	} else {
 		np0, ne0 := len(g.Point), len(g.End)
 		program := g.loadSimple(glyf, ne)
-		g.addPhantomsAndScale(b, uhm, i, np0, true)
+		g.addPhantomsAndScale(b, np0, np0, true)
 		pp1x = g.Point[len(g.Point)-4].X
 		if g.hinter != nil {
 			if len(program) != 0 {
@@ -156,6 +176,7 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 			g.InFontUnits = g.InFontUnits[:len(g.InFontUnits)-4]
 			g.Unhinted = g.Unhinted[:len(g.Unhinted)-4]
 		}
+		copy(g.phantomPoints[:], g.Point[len(g.Point)-4:])
 		g.Point = g.Point[:len(g.Point)-4]
 		if np0 != 0 {
 			// The hinting program expects the []End values to be indexed relative
@@ -307,10 +328,14 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 				offset += 8
 			}
 		}
+		savedPP := g.phantomPoints
 		np0 := len(g.Point)
 		componentUMM := useMyMetrics && (flags&flagUseMyMetrics != 0)
 		if err := g.load(recursion+1, component, componentUMM); err != nil {
 			return err
+		}
+		if flags&flagUseMyMetrics == 0 {
+			g.phantomPoints = savedPP
 		}
 		if hasTransform {
 			for j := np0; j < len(g.Point); j++ {
@@ -349,7 +374,7 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 		return nil
 	}
 	program := glyf[offset : offset+instrLen]
-	g.addPhantomsAndScale(b, uhm, i, len(g.Point), false)
+	g.addPhantomsAndScale(b, np0, len(g.Point), false)
 	points, ends := g.Point[np0:], g.End[ne0:]
 	g.Point = g.Point[:len(g.Point)-4]
 	for j := range points {
@@ -372,36 +397,35 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 			ends[i] += np0
 		}
 	}
+	copy(g.phantomPoints[:], points[len(points)-4:])
 	return nil
 }
 
-func (g *GlyphBuf) addPhantomsAndScale(b Bounds, uhm HMetric, i Index, np0 int, simple bool) {
+func (g *GlyphBuf) addPhantomsAndScale(b Bounds, np0, np1 int, simple bool) {
 	// Add the four phantom points.
-	uvm := g.font.unscaledVMetric(i, b.YMax)
-	g.Point = append(g.Point,
-		Point{X: b.XMin - uhm.LeftSideBearing},
-		Point{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
-		Point{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing},
-		Point{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
-	)
+	g.Point = append(g.Point, g.phantomPoints[:]...)
 	// Scale the points.
 	if simple && g.hinter != nil {
-		g.InFontUnits = append(g.InFontUnits, g.Point[np0:]...)
+		g.InFontUnits = append(g.InFontUnits, g.Point[np1:]...)
 	}
-	for i := np0; i < len(g.Point); i++ {
+	for i := np1; i < len(g.Point); i++ {
 		p := &g.Point[i]
 		p.X = g.font.scale(g.scale * p.X)
 		p.Y = g.font.scale(g.scale * p.Y)
 	}
-	if simple && g.hinter != nil {
+	if g.hinter != nil {
 		// Round the 1st phantom point to the grid, shifting all other points equally.
+		// Note that "all other points" starts from np0, not np1.
+		// TODO: is the np0/np1 distinction actually a bug in C Freetype?
 		pp1x := g.Point[len(g.Point)-4].X
 		if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
 			for i := np0; i < len(g.Point); i++ {
 				g.Point[i].X += dx
 			}
 		}
-		g.Unhinted = append(g.Unhinted, g.Point[np0:]...)
+		if simple {
+			g.Unhinted = append(g.Unhinted, g.Point[np1:]...)
+		}
 	}
 	// Round the 2nd and 4th phantom point to the grid.
 	p := &g.Point[len(g.Point)-3]

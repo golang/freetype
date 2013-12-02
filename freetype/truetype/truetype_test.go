@@ -255,7 +255,7 @@ var scalingTestCases = []struct {
 	hintingBrokenAt int
 }{
 	{"luxisr", 12, -1},
-	{"x-arial-bold", 11, 274},
+	{"x-arial-bold", 11, 1162},
 	{"x-deja-vu-sans-oblique", 17, -1},
 	{"x-droid-sans-japanese", 9, 0},
 	{"x-times-new-roman", 13, 0},
