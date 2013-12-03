@@ -255,8 +255,8 @@ var scalingTestCases = []struct {
 	{"luxisr", 12, -1},
 	{"x-arial-bold", 11, -1},
 	{"x-deja-vu-sans-oblique", 17, -1},
-	{"x-droid-sans-japanese", 9, 0},
-	{"x-times-new-roman", 13, 0},
+	{"x-droid-sans-japanese", 9, -1},
+	{"x-times-new-roman", 13, 8},
 }
 
 // TODO: also test bounding boxes, not just points.

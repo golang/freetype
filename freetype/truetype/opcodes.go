@@ -82,7 +82,7 @@ const (
 	opRCVT      = 0x45 // Read Control Value Table entry
 	opGC0       = 0x46 // Get Coordinate projected onto the projection vector
 	opGC1       = 0x47 // .
-	opSCFS      = 0x48
+	opSCFS      = 0x48 // Sets Coordinate From the Stack using projection vector and freedom vector
 	opMD0       = 0x49 // Measure Distance
 	opMD1       = 0x4a // .
 	opMPPEM     = 0x4b // Measure Pixels Per EM
@@ -138,9 +138,9 @@ const (
 	opRDTG      = 0x7d // Round Down To Grid
 	opSANGW     = 0x7e // Set ANGle Weight
 	opAA        = 0x7f // Adjust Angle
-	opFLIPPT    = 0x80
-	opFLIPRGON  = 0x81
-	opFLIPRGOFF = 0x82
+	opFLIPPT    = 0x80 // FLIP PoinT
+	opFLIPRGON  = 0x81 // FLIP RanGe ON
+	opFLIPRGOFF = 0x82 // FLIP RanGe OFF
 	op_0x83     = 0x83
 	op_0x84     = 0x84
 	opSCANCTRL  = 0x85 // SCAN conversion ConTRoL
@@ -275,11 +275,11 @@ var popCount = [256]uint8{
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
 	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
 	0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
-	0, 0, 2, 1, 2, 1, 1, 1, q, 2, 2, 0, 0, 0, 0, 0, // 0x40 - 0x4f
+	0, 0, 2, 1, 2, 1, 1, 1, 2, 2, 2, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, 1, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
 	2, 1, 1, 1, 1, 1, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
-	q, q, q, q, q, 1, 2, 2, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
+	0, 2, 2, q, q, 1, 2, 2, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf

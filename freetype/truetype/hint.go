@@ -754,6 +754,25 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				h.stack[top-1] = int32(dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.dv))
 			}
 
+		case opSCFS:
+			top -= 2
+			i := h.stack[top]
+			p := h.point(2, current, i)
+			if p == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			c := dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
+			h.move(p, f26dot6(h.stack[top+1])-c, true)
+			if h.gs.zp[2] != 0 {
+				break
+			}
+			q := h.point(2, unhinted, i)
+			if q == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			q.X = p.X
+			q.Y = p.Y
+
 		case opMD0, opMD1:
 			top--
 			i, j := h.stack[top-1], h.stack[top]
@@ -959,6 +978,35 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opSANGW, opAA:
 			// These ops are "anachronistic" and no longer used.
 			top--
+
+		case opFLIPPT:
+			if top < int(h.gs.loop) {
+				return errors.New("truetype: hinting: stack underflow")
+			}
+			points := h.points[glyphZone][current]
+			for ; h.gs.loop != 0; h.gs.loop-- {
+				top--
+				i := h.stack[top]
+				if i < 0 || len(points) <= int(i) {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				points[i].Flags ^= flagOnCurve
+			}
+			h.gs.loop = 1
+
+		case opFLIPRGON, opFLIPRGOFF:
+			top -= 2
+			i, j, points := h.stack[top], h.stack[top+1], h.points[glyphZone][current]
+			if i < 0 || len(points) <= int(i) || j < 0 || len(points) <= int(j) {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			for ; i <= j; i++ {
+				if opcode == opFLIPRGON {
+					points[i].Flags |= flagOnCurve
+				} else {
+					points[i].Flags &^= flagOnCurve
+				}
+			}
 
 		case opSCANCTRL:
 			// We do not support dropout control, as we always rasterize grayscale glyphs.
