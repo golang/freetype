@@ -775,19 +775,28 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opMD0, opMD1:
 			top--
-			i, j := h.stack[top-1], h.stack[top]
-			if opcode == opMD1 {
-				p := h.point(0, current, i)
-				q := h.point(1, current, j)
-				h.stack[top-1] = int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), h.gs.pv))
+			pt, v, scale := pointType(0), [2]f2dot14{}, false
+			if opcode == opMD0 {
+				pt = current
+				v = h.gs.pv
+			} else if h.gs.zp[0] == 0 || h.gs.zp[1] == 0 {
+				pt = unhinted
+				v = h.gs.dv
 			} else {
-				// TODO: do we need to check (h.gs.zp[0] == 0 || h.gs.zp[1] == 0)
-				// as C Freetype does, similar to the MDRP instructions?
-				p := h.point(0, unhinted, i)
-				q := h.point(1, unhinted, j)
-				// Use dv for MD0 as in C Freetype.
-				h.stack[top-1] = int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), h.gs.dv))
+				pt = inFontUnits
+				v = h.gs.dv
+				scale = true
 			}
+			p := h.point(0, pt, h.stack[top-1])
+			q := h.point(1, pt, h.stack[top])
+			if p == nil || q == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			d := int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), v))
+			if scale {
+				d = int32(int64(d*h.scale) / int64(h.font.fUnitsPerEm))
+			}
+			h.stack[top-1] = d
 
 		case opMPPEM, opMPS:
 			if top >= len(h.stack) {
@@ -1679,7 +1688,7 @@ func (x f26dot6) div(y f26dot6) f26dot6 {
 
 // mul returns x*y in 26.6 fixed point arithmetic.
 func (x f26dot6) mul(y f26dot6) f26dot6 {
-	return f26dot6(int64(x) * int64(y) >> 6)
+	return f26dot6((int64(x)*int64(y) + 1<<5) >> 6)
 }
 
 // dotProduct returns the dot product of [x, y] and q. It is almost the same as
