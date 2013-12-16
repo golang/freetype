@@ -14,6 +14,7 @@ int main(int argc, char** argv) {
 	FT_Error error;
 	FT_Library library;
 	FT_Face face;
+	FT_Glyph_Metrics* m;
 	FT_Outline* o;
 	FT_Int major, minor, patch;
 	int i, j, font_size, no_hinting;
@@ -64,6 +65,15 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "glyph format for glyph %d is not FT_GLYPH_FORMAT_OUTLINE\n", i);
 			return 1;
 		}
+		m = &face->glyph->metrics;
+		/* Print what Go calls the AdvanceWidth, and then: XMin, YMin, XMax, YMax. */
+		printf("%ld %ld %ld %ld %ld;",
+				m->horiAdvance,
+				m->horiBearingX,
+				m->horiBearingY - m->height,
+				m->horiBearingX + m->width,
+				m->horiBearingY);
+		/* Print the glyph points. */
 		o = &face->glyph->outline;
 		for (j = 0; j < o->n_points; j++) {
 			if (j != 0) {

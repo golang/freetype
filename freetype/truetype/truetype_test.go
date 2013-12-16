@@ -191,14 +191,35 @@ func TestIndex(t *testing.T) {
 	}
 }
 
+type scalingTestData struct {
+	advanceWidth int32
+	bounds       Bounds
+	points       []Point
+}
+
 // scalingTestParse parses a line of points like
-// -22 -111 1, 178 555 1, 236 555 1, 36 -111 1
+// 213 -22 -111 236 555;-22 -111 1, 178 555 1, 236 555 1, 36 -111 1
 // The line will not have a trailing "\n".
-func scalingTestParse(line string) []Point {
-	if line == "" {
-		return nil
+func scalingTestParse(line string) (ret scalingTestData) {
+	next := func(s string) (string, int32) {
+		t, i := "", strings.Index(s, " ")
+		if i != -1 {
+			s, t = s[:i], s[i+1:]
+		}
+		x, _ := strconv.Atoi(s)
+		return t, int32(x)
 	}
-	points := make([]Point, 0, 1+strings.Count(line, ","))
+
+	i := strings.Index(line, ";")
+	prefix, line := line[:i], line[i+1:]
+
+	prefix, ret.advanceWidth = next(prefix)
+	prefix, ret.bounds.XMin = next(prefix)
+	prefix, ret.bounds.YMin = next(prefix)
+	prefix, ret.bounds.XMax = next(prefix)
+	prefix, ret.bounds.YMax = next(prefix)
+
+	ret.points = make([]Point, 0, 1+strings.Count(line, ","))
 	for len(line) > 0 {
 		s := line
 		if i := strings.Index(line, ","); i != -1 {
@@ -209,26 +230,12 @@ func scalingTestParse(line string) []Point {
 		} else {
 			line = ""
 		}
-		i := strings.Index(s, " ")
-		if i == -1 {
-			break
-		}
-		x, _ := strconv.Atoi(s[:i])
-		s = s[i+1:]
-		i = strings.Index(s, " ")
-		if i == -1 {
-			break
-		}
-		y, _ := strconv.Atoi(s[:i])
-		s = s[i+1:]
-		f, _ := strconv.Atoi(s)
-		points = append(points, Point{
-			X:     int32(x),
-			Y:     int32(y),
-			Flags: uint32(f),
-		})
+		s, x := next(s)
+		s, y := next(s)
+		s, f := next(s)
+		ret.points = append(ret.points, Point{X: x, Y: y, Flags: uint32(f)})
 	}
-	return points
+	return ret
 }
 
 // scalingTestEquals is equivalent to, but faster than, calling
@@ -247,19 +254,19 @@ func scalingTestEquals(a, b []Point) (index int, equals bool) {
 var scalingTestCases = []struct {
 	name string
 	size int32
-	// hintingBrokenAt, if non-negative, is the glyph index n for which
-	// only the first n glyphs are known to be correctly hinted.
-	// TODO: remove this field, when hinting is completely implemented.
-	hintingBrokenAt int
+	// xxxHintingBrokenAt, if non-negative, is the glyph index n for which
+	// only the first n glyphs are known to be correct wrt the advance width
+	// and bounding boxes.
+	// TODO: remove these fields.
+	sansHintingBrokenAt int
+	withHintingBrokenAt int
 }{
-	{"luxisr", 12, -1},
-	{"x-arial-bold", 11, -1},
-	{"x-deja-vu-sans-oblique", 17, -1},
-	{"x-droid-sans-japanese", 9, -1},
-	{"x-times-new-roman", 13, -1},
+	{"luxisr", 12, 116, 0},
+	{"x-arial-bold", 11, 16, 0},
+	{"x-deja-vu-sans-oblique", 17, 126, 0},
+	{"x-droid-sans-japanese", 9, -1, 4},
+	{"x-times-new-roman", 13, 0, 0},
 }
-
-// TODO: also test bounding boxes, not just points.
 
 func testScaling(t *testing.T, hinter *Hinter) {
 	for _, tc := range scalingTestCases {
@@ -284,7 +291,7 @@ func testScaling(t *testing.T, hinter *Hinter) {
 		}
 		defer f.Close()
 
-		wants := [][]Point{}
+		wants := []scalingTestData{}
 		scanner := bufio.NewScanner(f)
 		if scanner.Scan() {
 			major, minor, patch := 0, 0, 0
@@ -313,9 +320,10 @@ func testScaling(t *testing.T, hinter *Hinter) {
 
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
-			// TODO: completely implement hinting. For now, only the first
-			// tc.hintingBrokenAt glyphs of the test case's font are correctly hinted.
-			if hinter != nil && i == tc.hintingBrokenAt {
+			if hinter == nil && i == tc.sansHintingBrokenAt {
+				break
+			}
+			if hinter != nil && i == tc.withHintingBrokenAt {
 				break
 			}
 
@@ -323,18 +331,36 @@ func testScaling(t *testing.T, hinter *Hinter) {
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
 				continue
 			}
-			got := glyphBuf.Point
-			for i := range got {
-				got[i].Flags &= 0x01
+			got := scalingTestData{
+				// TODO: a GlyphBuf should also provide the advance width.
+				advanceWidth: font.HMetric(tc.size*64, Index(i)).AdvanceWidth,
+				bounds:       glyphBuf.B,
+				points:       glyphBuf.Point,
 			}
-			if len(got) != len(want) {
-				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\ndifferent slice lengths: %d versus %d",
-					tc.name, i, got, want, len(got), len(want))
+
+			if got.advanceWidth != want.advanceWidth {
+				t.Errorf("%s: glyph #%d advance width:\ngot  %v\nwant %v",
+					tc.name, i, got.advanceWidth, want.advanceWidth)
 				continue
 			}
-			if index, equals := scalingTestEquals(got, want); !equals {
+
+			if got.bounds != want.bounds {
+				t.Errorf("%s: glyph #%d bounds:\ngot  %v\nwant %v",
+					tc.name, i, got.bounds, want.bounds)
+				continue
+			}
+
+			for i := range got.points {
+				got.points[i].Flags &= 0x01
+			}
+			if len(got.points) != len(want.points) {
+				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\ndifferent slice lengths: %d versus %d",
+					tc.name, i, got.points, want.points, len(got.points), len(want.points))
+				continue
+			}
+			if j, equals := scalingTestEquals(got.points, want.points); !equals {
 				t.Errorf("%s: glyph #%d:\ngot  %v\nwant %v\nat index %d: %v versus %v",
-					tc.name, i, got, want, index, got[index], want[index])
+					tc.name, i, got.points, want.points, j, got.points[j], want.points[j])
 				continue
 			}
 		}
