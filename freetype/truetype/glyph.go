@@ -74,7 +74,6 @@ const (
 // units in 1 em. The Hinter is optional; if non-nil, then the resulting glyph
 // will be hinted by the Font's bytecode instructions.
 func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
-	g.B = Bounds{}
 	g.Point = g.Point[:0]
 	g.Unhinted = g.Unhinted[:0]
 	g.InFontUnits = g.InFontUnits[:0]
@@ -105,7 +104,43 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 		for i := range g.Point {
 			g.Point[i].X -= pp1x
 		}
-		// TODO: also adjust g.B?
+	}
+
+	// Set g.B to the 'control box', which is the bounding box of the Bézier
+	// curves' control points. This is easier to calculate, no smaller than
+	// and often equal to the tightest possible bounding box of the curves
+	// themselves. This approach is what C Freetype does. We can't just scale
+	// the nominal bounding box in the glyf data as the hinting process and
+	// phantom point adjustment may move points outside of that box.
+	if len(g.Point) == 0 {
+		g.B = Bounds{}
+	} else {
+		p := g.Point[0]
+		g.B.XMin = p.X
+		g.B.XMax = p.X
+		g.B.YMin = p.Y
+		g.B.YMax = p.Y
+		for _, p := range g.Point[1:] {
+			if g.B.XMin > p.X {
+				g.B.XMin = p.X
+			} else if g.B.XMax < p.X {
+				g.B.XMax = p.X
+			}
+			if g.B.YMin > p.Y {
+				g.B.YMin = p.Y
+			} else if g.B.YMax < p.Y {
+				g.B.YMax = p.Y
+			}
+		}
+		// Snap the box to the grid, if hinting is on.
+		if h != nil {
+			g.B.XMin &^= 63
+			g.B.YMin &^= 63
+			g.B.XMax += 63
+			g.B.XMax &^= 63
+			g.B.YMax += 63
+			g.B.YMax &^= 63
+		}
 	}
 	return nil
 }
@@ -128,36 +163,38 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		return nil
 	}
 	glyf := g.font.glyf[g0:g1]
-	// Decode the contour end indices.
+
+	// Decode the contour count and nominal bounding box.
+	// boundsYMin and boundsXMax, at offsets 4 and 6, are unused.
 	ne := int(int16(u16(glyf, 0)))
-	b := Bounds{
-		XMin: int32(int16(u16(glyf, 2))),
-		YMin: int32(int16(u16(glyf, 4))),
-		XMax: int32(int16(u16(glyf, 6))),
-		YMax: int32(int16(u16(glyf, 8))),
-	}
+	boundsXMin := int32(int16(u16(glyf, 2)))
+	boundsYMax := int32(int16(u16(glyf, 8)))
+
+	// Create the phantom points.
 	uhm, pp1x := g.font.unscaledHMetric(i), int32(0)
-	uvm := g.font.unscaledVMetric(i, b.YMax)
+	uvm := g.font.unscaledVMetric(i, boundsYMax)
 	g.phantomPoints = [4]Point{
-		{X: b.XMin - uhm.LeftSideBearing},
-		{X: b.XMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
-		{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing},
-		{X: uhm.AdvanceWidth / 2, Y: b.YMax + uvm.TopSideBearing - uvm.AdvanceHeight},
+		{X: boundsXMin - uhm.LeftSideBearing},
+		{X: boundsXMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
+		{X: uhm.AdvanceWidth / 2, Y: boundsYMax + uvm.TopSideBearing},
+		{X: uhm.AdvanceWidth / 2, Y: boundsYMax + uvm.TopSideBearing - uvm.AdvanceHeight},
 	}
+
+	// Load and hint the contours.
 	if ne < 0 {
 		if ne != -1 {
 			// http://developer.apple.com/fonts/TTRefMan/RM06/Chap6glyf.html says that
 			// "the values -2, -3, and so forth, are reserved for future use."
 			return UnsupportedError("negative number of contours")
 		}
-		pp1x = g.font.scale(g.scale * (b.XMin - uhm.LeftSideBearing))
-		if err := g.loadCompound(recursion, b, uhm, i, glyf, useMyMetrics); err != nil {
+		pp1x = g.font.scale(g.scale * (boundsXMin - uhm.LeftSideBearing))
+		if err := g.loadCompound(recursion, uhm, i, glyf, useMyMetrics); err != nil {
 			return err
 		}
 	} else {
 		np0, ne0 := len(g.Point), len(g.End)
 		program := g.loadSimple(glyf, ne)
-		g.addPhantomsAndScale(b, np0, np0, true)
+		g.addPhantomsAndScale(np0, np0, true)
 		pp1x = g.Point[len(g.Point)-4].X
 		if g.hinter != nil {
 			if len(program) != 0 {
@@ -189,10 +226,6 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 	}
 	if useMyMetrics && !g.metricsSet {
 		g.metricsSet = true
-		g.B.XMin = g.font.scale(g.scale * b.XMin)
-		g.B.YMin = g.font.scale(g.scale * b.YMin)
-		g.B.XMax = g.font.scale(g.scale * b.XMax)
-		g.B.YMax = g.font.scale(g.scale * b.YMax)
 		g.pp1x = pp1x
 	}
 	return nil
@@ -273,7 +306,7 @@ func (g *GlyphBuf) loadSimple(glyf []byte, ne int) (program []byte) {
 	return program
 }
 
-func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
+func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 	glyf []byte, useMyMetrics bool) error {
 
 	// Flags for decoding a compound glyph. These flags are documented at
@@ -374,7 +407,7 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 		return nil
 	}
 	program := glyf[offset : offset+instrLen]
-	g.addPhantomsAndScale(b, np0, len(g.Point), false)
+	g.addPhantomsAndScale(np0, len(g.Point), false)
 	points, ends := g.Point[np0:], g.End[ne0:]
 	g.Point = g.Point[:len(g.Point)-4]
 	for j := range points {
@@ -401,7 +434,7 @@ func (g *GlyphBuf) loadCompound(recursion int32, b Bounds, uhm HMetric, i Index,
 	return nil
 }
 
-func (g *GlyphBuf) addPhantomsAndScale(b Bounds, np0, np1 int, simple bool) {
+func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple bool) {
 	// Add the four phantom points.
 	g.Point = append(g.Point, g.phantomPoints[:]...)
 	// Scale the points.
