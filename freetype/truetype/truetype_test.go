@@ -254,18 +254,12 @@ func scalingTestEquals(a, b []Point) (index int, equals bool) {
 var scalingTestCases = []struct {
 	name string
 	size int32
-	// xxxHintingBrokenAt, if non-negative, is the glyph index n for which
-	// only the first n glyphs are known to be correct wrt the advance width
-	// and bounding boxes.
-	// TODO: remove these fields.
-	sansHintingBrokenAt int
-	withHintingBrokenAt int
 }{
-	{"luxisr", 12, -1, -1},
-	{"x-arial-bold", 11, -1, -1},
-	{"x-deja-vu-sans-oblique", 17, -1, -1},
-	{"x-droid-sans-japanese", 9, -1, -1},
-	{"x-times-new-roman", 13, -1, -1},
+	{"luxisr", 12},
+	{"x-arial-bold", 11},
+	{"x-deja-vu-sans-oblique", 17},
+	{"x-droid-sans-japanese", 9},
+	{"x-times-new-roman", 13},
 }
 
 func testScaling(t *testing.T, hinter *Hinter) {
@@ -320,31 +314,21 @@ func testScaling(t *testing.T, hinter *Hinter) {
 
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
-			if hinter == nil && i == tc.sansHintingBrokenAt {
-				break
-			}
-			if hinter != nil && i == tc.withHintingBrokenAt {
-				break
-			}
-
 			if err = glyphBuf.Load(font, tc.size*64, Index(i), hinter); err != nil {
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
 				continue
 			}
 			got := scalingTestData{
-				// TODO: a GlyphBuf should also provide the advance width.
-				advanceWidth: font.HMetric(tc.size*64, Index(i)).AdvanceWidth,
+				advanceWidth: glyphBuf.AdvanceWidth,
 				bounds:       glyphBuf.B,
 				points:       glyphBuf.Point,
 			}
 
-			/* TODO: check advance widths.
 			if got.advanceWidth != want.advanceWidth {
 				t.Errorf("%s: glyph #%d advance width:\ngot  %v\nwant %v",
 					tc.name, i, got.advanceWidth, want.advanceWidth)
 				continue
 			}
-			*/
 
 			if got.bounds != want.bounds {
 				t.Errorf("%s: glyph #%d bounds:\ngot  %v\nwant %v",

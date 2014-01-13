@@ -31,10 +31,11 @@ const (
 // implicitly by the quantized x and y fractional offset. It maps to a mask
 // image and an offset.
 type cacheEntry struct {
-	valid  bool
-	glyph  truetype.Index
-	mask   *image.Alpha
-	offset image.Point
+	valid        bool
+	glyph        truetype.Index
+	advanceWidth raster.Fix32
+	mask         *image.Alpha
+	offset       image.Point
 }
 
 // ParseFont just calls the Parse function from the freetype/truetype package.
@@ -124,12 +125,14 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 	}
 }
 
-// rasterize returns the glyph mask and integer-pixel offset to render the
-// given glyph at the given sub-pixel offsets.
+// rasterize returns the advance width, glyph mask and integer-pixel offset
+// to render the given glyph at the given sub-pixel offsets.
 // The 24.8 fixed point arguments fx and fy must be in the range [0, 1).
-func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.Alpha, image.Point, error) {
+func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (
+	raster.Fix32, *image.Alpha, image.Point, error) {
+
 	if err := c.glyphBuf.Load(c.font, c.scale, glyph, nil); err != nil {
-		return nil, image.ZP, err
+		return 0, nil, image.Point{}, err
 	}
 	// Calculate the integer-pixel bounds for the glyph.
 	xmin := int(fx+raster.Fix32(c.glyphBuf.B.XMin<<2)) >> 8
@@ -137,7 +140,7 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.A
 	xmax := int(fx+raster.Fix32(c.glyphBuf.B.XMax<<2)+0xff) >> 8
 	ymax := int(fy-raster.Fix32(c.glyphBuf.B.YMin<<2)+0xff) >> 8
 	if xmin > xmax || ymin > ymax {
-		return nil, image.ZP, errors.New("freetype: negative sized glyph")
+		return 0, nil, image.Point{}, errors.New("freetype: negative sized glyph")
 	}
 	// A TrueType's glyph's nodes can have negative co-ordinates, but the
 	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin
@@ -155,13 +158,16 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (*image.A
 	}
 	a := image.NewAlpha(image.Rect(0, 0, xmax-xmin, ymax-ymin))
 	c.r.Rasterize(raster.NewAlphaSrcPainter(a))
-	return a, image.Point{xmin, ymin}, nil
+	return raster.Fix32(c.glyphBuf.AdvanceWidth << 2), a, image.Point{xmin, ymin}, nil
 }
 
-// glyph returns the glyph mask and integer-pixel offset to render the given
-// glyph at the given sub-pixel point. It is a cache for the rasterize method.
-// Unlike rasterize, p's co-ordinates do not have to be in the range [0, 1).
-func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, image.Point, error) {
+// glyph returns the advance width, glyph mask and integer-pixel offset to
+// render the given glyph at the given sub-pixel point. It is a cache for the
+// rasterize method. Unlike rasterize, p's co-ordinates do not have to be in
+// the range [0, 1).
+func (c *Context) glyph(glyph truetype.Index, p raster.Point) (
+	raster.Fix32, *image.Alpha, image.Point, error) {
+
 	// Split p.X and p.Y into their integer and fractional parts.
 	ix, fx := int(p.X>>8), p.X&0xff
 	iy, fy := int(p.Y>>8), p.Y&0xff
@@ -171,16 +177,16 @@ func (c *Context) glyph(glyph truetype.Index, p raster.Point) (*image.Alpha, ima
 	ty := int(fy) / (256 / nYFractions)
 	t := ((tg*nXFractions)+tx)*nYFractions + ty
 	// Check for a cache hit.
-	if c.cache[t].valid && c.cache[t].glyph == glyph {
-		return c.cache[t].mask, c.cache[t].offset.Add(image.Point{ix, iy}), nil
+	if e := c.cache[t]; e.valid && e.glyph == glyph {
+		return e.advanceWidth, e.mask, e.offset.Add(image.Point{ix, iy}), nil
 	}
 	// Rasterize the glyph and put the result into the cache.
-	mask, offset, err := c.rasterize(glyph, fx, fy)
+	advanceWidth, mask, offset, err := c.rasterize(glyph, fx, fy)
 	if err != nil {
-		return nil, image.ZP, err
+		return 0, nil, image.Point{}, err
 	}
-	c.cache[t] = cacheEntry{true, glyph, mask, offset}
-	return mask, offset.Add(image.Point{ix, iy}), nil
+	c.cache[t] = cacheEntry{true, glyph, advanceWidth, mask, offset}
+	return advanceWidth, mask, offset.Add(image.Point{ix, iy}), nil
 }
 
 // DrawString draws s at p and returns p advanced by the text extent. The text
@@ -198,13 +204,14 @@ func (c *Context) DrawString(s string, p raster.Point) (raster.Point, error) {
 	for _, rune := range s {
 		index := c.font.Index(rune)
 		if hasPrev {
+			// TODO: adjust for hinting.
 			p.X += raster.Fix32(c.font.Kerning(c.scale, prev, index)) << 2
 		}
-		mask, offset, err := c.glyph(index, p)
+		advanceWidth, mask, offset, err := c.glyph(index, p)
 		if err != nil {
 			return raster.Point{}, err
 		}
-		p.X += raster.Fix32(c.font.HMetric(c.scale, index).AdvanceWidth) << 2
+		p.X += advanceWidth
 		glyphRect := mask.Bounds().Add(offset)
 		dr := c.clip.Intersect(glyphRect)
 		if !dr.Empty() {

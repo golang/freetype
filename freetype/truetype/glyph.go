@@ -17,6 +17,8 @@ type Point struct {
 // A GlyphBuf holds a glyph's contours. A GlyphBuf can be re-used to load a
 // series of glyphs from a Font.
 type GlyphBuf struct {
+	// AdvanceWidth is the glyph's advance width.
+	AdvanceWidth int32
 	// B is the glyph's bounding box.
 	B Bounds
 	// Point contains all Points from all contours of the glyph. If a
@@ -106,6 +108,22 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 		}
 	}
 
+	advanceWidth := g.phantomPoints[1].X - g.phantomPoints[0].X
+	if h != nil {
+		if len(f.hdmx) >= 8 {
+			if n := u32(f.hdmx, 4); n > 3+uint32(i) {
+				for hdmx := f.hdmx[8:]; uint32(len(hdmx)) >= n; hdmx = hdmx[n:] {
+					if int32(hdmx[0]) == scale>>6 {
+						advanceWidth = int32(hdmx[2+i]) << 6
+						break
+					}
+				}
+			}
+		}
+		advanceWidth = (advanceWidth + 32) &^ 63
+	}
+	g.AdvanceWidth = advanceWidth
+
 	// Set g.B to the 'control box', which is the bounding box of the Bézier
 	// curves' control points. This is easier to calculate, no smaller than
 	// and often equal to the tightest possible bounding box of the curves
@@ -159,16 +177,17 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		g0 = u32(g.font.loca, 4*int(i))
 		g1 = u32(g.font.loca, 4*int(i)+4)
 	}
-	if g0 == g1 {
-		return nil
-	}
-	glyf := g.font.glyf[g0:g1]
 
-	// Decode the contour count and nominal bounding box.
-	// boundsYMin and boundsXMax, at offsets 4 and 6, are unused.
-	ne := int(int16(u16(glyf, 0)))
-	boundsXMin := int32(int16(u16(glyf, 2)))
-	boundsYMax := int32(int16(u16(glyf, 8)))
+	// Decode the contour count and nominal bounding box, from the first
+	// 10 bytes of the glyf data. boundsYMin and boundsXMax, at offsets 4
+	// and 6, are unused.
+	glyf, ne, boundsXMin, boundsYMax := []byte(nil), 0, int32(0), int32(0)
+	if g0+10 <= g1 {
+		glyf = g.font.glyf[g0:g1]
+		ne = int(int16(u16(glyf, 0)))
+		boundsXMin = int32(int16(u16(glyf, 2)))
+		boundsYMax = int32(int16(u16(glyf, 8)))
+	}
 
 	// Create the phantom points.
 	uhm, pp1x := g.font.unscaledHMetric(i), int32(0)
@@ -178,6 +197,12 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		{X: boundsXMin - uhm.LeftSideBearing + uhm.AdvanceWidth},
 		{X: uhm.AdvanceWidth / 2, Y: boundsYMax + uvm.TopSideBearing},
 		{X: uhm.AdvanceWidth / 2, Y: boundsYMax + uvm.TopSideBearing - uvm.AdvanceHeight},
+	}
+	if len(glyf) == 0 {
+		g.addPhantomsAndScale(len(g.Point), len(g.Point), true, true)
+		copy(g.phantomPoints[:], g.Point[len(g.Point)-4:])
+		g.Point = g.Point[:len(g.Point)-4]
+		return nil
 	}
 
 	// Load and hint the contours.
@@ -194,7 +219,7 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 	} else {
 		np0, ne0 := len(g.Point), len(g.End)
 		program := g.loadSimple(glyf, ne)
-		g.addPhantomsAndScale(np0, np0, true)
+		g.addPhantomsAndScale(np0, np0, true, true)
 		pp1x = g.Point[len(g.Point)-4].X
 		if g.hinter != nil {
 			if len(program) != 0 {
@@ -213,7 +238,9 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 			g.InFontUnits = g.InFontUnits[:len(g.InFontUnits)-4]
 			g.Unhinted = g.Unhinted[:len(g.Unhinted)-4]
 		}
-		copy(g.phantomPoints[:], g.Point[len(g.Point)-4:])
+		if useMyMetrics {
+			copy(g.phantomPoints[:], g.Point[len(g.Point)-4:])
+		}
 		g.Point = g.Point[:len(g.Point)-4]
 		if np0 != 0 {
 			// The hinting program expects the []End values to be indexed relative
@@ -397,22 +424,28 @@ func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 		}
 	}
 
-	// Hint the compound glyph.
-	if g.hinter == nil || offset+2 > len(glyf) {
-		return nil
+	instrLen := 0
+	if g.hinter != nil && offset+2 <= len(glyf) {
+		instrLen = int(u16(glyf, offset))
+		offset += 2
 	}
-	instrLen := int(u16(glyf, offset))
-	offset += 2
-	if instrLen == 0 {
-		return nil
-	}
-	program := glyf[offset : offset+instrLen]
-	g.addPhantomsAndScale(np0, len(g.Point), false)
+
+	g.addPhantomsAndScale(np0, len(g.Point), false, instrLen > 0)
 	points, ends := g.Point[np0:], g.End[ne0:]
 	g.Point = g.Point[:len(g.Point)-4]
 	for j := range points {
 		points[j].Flags &^= flagTouchedX | flagTouchedY
 	}
+
+	if instrLen == 0 {
+		if !g.metricsSet {
+			copy(g.phantomPoints[:], points[len(points)-4:])
+		}
+		return nil
+	}
+
+	// Hint the compound glyph.
+	program := glyf[offset : offset+instrLen]
 	// Temporarily adjust the ends to be relative to this compound glyph.
 	if np0 != 0 {
 		for i := range ends {
@@ -430,11 +463,13 @@ func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 			ends[i] += np0
 		}
 	}
-	copy(g.phantomPoints[:], points[len(points)-4:])
+	if !g.metricsSet {
+		copy(g.phantomPoints[:], points[len(points)-4:])
+	}
 	return nil
 }
 
-func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple bool) {
+func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple, adjust bool) {
 	// Add the four phantom points.
 	g.Point = append(g.Point, g.phantomPoints[:]...)
 	// Scale the points.
@@ -446,19 +481,24 @@ func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple bool) {
 		p.X = g.font.scale(g.scale * p.X)
 		p.Y = g.font.scale(g.scale * p.Y)
 	}
-	if g.hinter != nil {
-		// Round the 1st phantom point to the grid, shifting all other points equally.
-		// Note that "all other points" starts from np0, not np1.
-		// TODO: is the np0/np1 distinction actually a bug in C Freetype?
+	if g.hinter == nil {
+		return
+	}
+	// Round the 1st phantom point to the grid, shifting all other points equally.
+	// Note that "all other points" starts from np0, not np1.
+	// TODO: delete this adjustment and the np0/np1 distinction, when
+	// we update the compatibility tests to C Freetype 2.5.3.
+	// See http://git.savannah.gnu.org/cgit/freetype/freetype2.git/commit/?id=05c786d990390a7ca18e62962641dac740bacb06
+	if adjust {
 		pp1x := g.Point[len(g.Point)-4].X
 		if dx := ((pp1x + 32) &^ 63) - pp1x; dx != 0 {
 			for i := np0; i < len(g.Point); i++ {
 				g.Point[i].X += dx
 			}
 		}
-		if simple {
-			g.Unhinted = append(g.Unhinted, g.Point[np1:]...)
-		}
+	}
+	if simple {
+		g.Unhinted = append(g.Unhinted, g.Point[np1:]...)
 	}
 	// Round the 2nd and 4th phantom point to the grid.
 	p := &g.Point[len(g.Point)-3]
