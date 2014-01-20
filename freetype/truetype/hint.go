@@ -419,6 +419,25 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				top--
 			}
 
+		case opALIGNPTS:
+			top -= 2
+			p := h.point(1, current, h.stack[top])
+			q := h.point(0, current, h.stack[top+1])
+			if p == nil || q == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			d := dotProduct(f26dot6(q.X-p.X), f26dot6(q.Y-p.Y), h.gs.pv) / 2
+			h.move(p, +d, true)
+			h.move(q, -d, true)
+
+		case opUTP:
+			top--
+			p := h.point(0, current, h.stack[top])
+			if p == nil {
+				return errors.New("truetype: hinting: point out of range")
+			}
+			p.Flags &^= flagTouchedX | flagTouchedY
+
 		case opLOOPCALL, opCALL:
 			if callStackTop >= len(callStack) {
 				return errors.New("truetype: hinting: call stack overflow")
@@ -1086,6 +1105,15 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opSCANTYPE:
 			// We do not support dropout control, as we always rasterize grayscale glyphs.
 			top--
+
+		case opINSTCTRL:
+			// TODO: support instruction execution control? It seems rare, and even when
+			// nominally used (e.g. Source Sans Pro), it seems conditional on extreme or
+			// unusual rasterization conditions. For example, the code snippet at
+			// https://developer.apple.com/fonts/TTRefMan/RM05/Chap5.html#INSTCTRL
+			// uses INSTCTRL when grid-fitting a rotated or stretched glyph, but
+			// freetype-go does not support rotated or stretched glyphs.
+			top -= 2
 
 		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011,
 			opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:

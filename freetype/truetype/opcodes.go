@@ -5,9 +5,8 @@
 
 package truetype
 
-// The Truetype opcodes are summarized at https://developer.apple.com/fonts/TTRefMan/RM07/appendixA.html
-
-// TODO: the opXXX constants without end-of-line comments are not yet implemented.
+// The Truetype opcodes are summarized at
+// https://developer.apple.com/fonts/TTRefMan/RM07/appendixA.html
 
 const (
 	opSVTCA0    = 0x00 // Set freedom and projection Vectors To Coordinate Axis
@@ -49,9 +48,9 @@ const (
 	opDEPTH     = 0x24 // DEPTH of the stack
 	opCINDEX    = 0x25 // Copy the INDEXed element to the top of the stack
 	opMINDEX    = 0x26 // Move the INDEXed element to the top of the stack
-	opALIGNPTS  = 0x27
-	op_0x28     = 0x28
-	opUTP       = 0x29
+	opALIGNPTS  = 0x27 // ALIGN PoinTS
+	op_0x28     = 0x28 // deprecated
+	opUTP       = 0x29 // UnTouch Point
 	opLOOPCALL  = 0x2a // LOOP and CALL function
 	opCALL      = 0x2b // CALL function
 	opFDEF      = 0x2c // Function DEFinition
@@ -133,7 +132,7 @@ const (
 	opJROT      = 0x78 // Jump Relative On True
 	opJROF      = 0x79 // Jump Relative On False
 	opROFF      = 0x7a // Round OFF
-	op_0x7b     = 0x7b
+	op_0x7b     = 0x7b // deprecated
 	opRUTG      = 0x7c // Round Up To Grid
 	opRDTG      = 0x7d // Round Down To Grid
 	opSANGW     = 0x7e // Set ANGle Weight
@@ -141,8 +140,8 @@ const (
 	opFLIPPT    = 0x80 // FLIP PoinT
 	opFLIPRGON  = 0x81 // FLIP RanGe ON
 	opFLIPRGOFF = 0x82 // FLIP RanGe OFF
-	op_0x83     = 0x83
-	op_0x84     = 0x84
+	op_0x83     = 0x83 // deprecated
+	op_0x84     = 0x84 // deprecated
 	opSCANCTRL  = 0x85 // SCAN conversion ConTRoL
 	opSDPVTL0   = 0x86 // Set Dual Projection Vector To Line
 	opSDPVTL1   = 0x87 // .
@@ -152,7 +151,7 @@ const (
 	opMAX       = 0x8b // MAXimum of top two stack elements
 	opMIN       = 0x8c // MINimum of top two stack elements
 	opSCANTYPE  = 0x8d // SCANTYPE
-	opINSTCTRL  = 0x8e
+	opINSTCTRL  = 0x8e // INSTRuction execution ConTRoL
 	op_0x8f     = 0x8f
 	op_0x90     = 0x90
 	op_0x91     = 0x91
@@ -273,13 +272,13 @@ var popCount = [256]uint8{
 	// 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b, c, d, e, f
 	0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, 5, // 0x00 - 0x0f
 	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, // 0x10 - 0x1f
-	1, 1, 0, 2, 0, 1, 1, q, q, q, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
+	1, 1, 0, 2, 0, 1, 1, 2, 0, 1, 2, 1, 1, 0, 1, 1, // 0x20 - 0x2f
 	0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 2, 2, 0, 0, 2, 2, // 0x30 - 0x3f
 	0, 0, 2, 1, 2, 1, 1, 1, 2, 2, 2, 0, 0, 0, 0, 0, // 0x40 - 0x4f
 	2, 2, 2, 2, 2, 2, 1, 1, 1, 0, 2, 2, 1, 1, 1, 1, // 0x50 - 0x5f
 	2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x60 - 0x6f
-	2, 1, 1, 1, 1, 1, 1, 1, 2, 2, 0, q, 0, 0, 1, 1, // 0x70 - 0x7f
-	0, 2, 2, q, q, 1, 2, 2, 1, 1, 3, 2, 2, 1, q, q, // 0x80 - 0x8f
+	2, 1, 1, 1, 1, 1, 1, 1, 2, 2, 0, 0, 0, 0, 1, 1, // 0x70 - 0x7f
+	0, 2, 2, 0, 0, 1, 2, 2, 1, 1, 3, 2, 2, 1, 2, q, // 0x80 - 0x8f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0x90 - 0x9f
 	q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // 0xa0 - 0xaf
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xb0 - 0xbf
