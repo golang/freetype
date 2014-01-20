@@ -195,9 +195,6 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			return errors.New("truetype: hinting: too many steps")
 		}
 		opcode = program[pc]
-		if popCount[opcode] == q {
-			return errors.New("truetype: hinting: unimplemented instruction")
-		}
 		if top < int(popCount[opcode]) {
 			return errors.New("truetype: hinting: stack underflow")
 		}
@@ -1115,170 +1112,159 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			// freetype-go does not support rotated or stretched glyphs.
 			top -= 2
 
-		case opPUSHB000, opPUSHB001, opPUSHB010, opPUSHB011,
-			opPUSHB100, opPUSHB101, opPUSHB110, opPUSHB111:
-
-			opcode -= opPUSHB000 - 1
-			goto push
-
-		case opPUSHW000, opPUSHW001, opPUSHW010, opPUSHW011,
-			opPUSHW100, opPUSHW101, opPUSHW110, opPUSHW111:
-
-			opcode -= opPUSHW000 - 1
-			opcode += 0x80
-			goto push
-
-		case opMDRP00000, opMDRP00001, opMDRP00010, opMDRP00011,
-			opMDRP00100, opMDRP00101, opMDRP00110, opMDRP00111,
-			opMDRP01000, opMDRP01001, opMDRP01010, opMDRP01011,
-			opMDRP01100, opMDRP01101, opMDRP01110, opMDRP01111,
-			opMDRP10000, opMDRP10001, opMDRP10010, opMDRP10011,
-			opMDRP10100, opMDRP10101, opMDRP10110, opMDRP10111,
-			opMDRP11000, opMDRP11001, opMDRP11010, opMDRP11011,
-			opMDRP11100, opMDRP11101, opMDRP11110, opMDRP11111:
-
-			top--
-			i := h.stack[top]
-			ref := h.point(0, current, h.gs.rp[0])
-			p := h.point(1, current, i)
-			if ref == nil || p == nil {
-				return errors.New("truetype: hinting: point out of range")
-			}
-
-			oldDist := f26dot6(0)
-			if h.gs.zp[0] == 0 || h.gs.zp[1] == 0 {
-				p0 := h.point(1, unhinted, i)
-				p1 := h.point(0, unhinted, h.gs.rp[0])
-				oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
-			} else {
-				p0 := h.point(1, inFontUnits, i)
-				p1 := h.point(0, inFontUnits, h.gs.rp[0])
-				oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
-				oldDist = f26dot6(h.font.scale(h.scale * int32(oldDist)))
-			}
-
-			// Single-width cut-in test.
-			if x := (oldDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
-				if oldDist >= 0 {
-					oldDist = +h.gs.singleWidth
-				} else {
-					oldDist = -h.gs.singleWidth
-				}
-			}
-
-			// Rounding bit.
-			// TODO: metrics compensation.
-			distance := oldDist
-			if opcode&0x04 != 0 {
-				distance = h.round(oldDist)
-			}
-
-			// Minimum distance bit.
-			if opcode&0x08 != 0 {
-				if oldDist >= 0 {
-					if distance < h.gs.minDist {
-						distance = h.gs.minDist
-					}
-				} else {
-					if distance > -h.gs.minDist {
-						distance = -h.gs.minDist
-					}
-				}
-			}
-
-			// Set-RP0 bit.
-			h.gs.rp[1] = h.gs.rp[0]
-			h.gs.rp[2] = i
-			if opcode&0x10 != 0 {
-				h.gs.rp[0] = i
-			}
-
-			// Move the point.
-			oldDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
-			h.move(p, distance-oldDist, true)
-
-		case opMIRP00000, opMIRP00001, opMIRP00010, opMIRP00011,
-			opMIRP00100, opMIRP00101, opMIRP00110, opMIRP00111,
-			opMIRP01000, opMIRP01001, opMIRP01010, opMIRP01011,
-			opMIRP01100, opMIRP01101, opMIRP01110, opMIRP01111,
-			opMIRP10000, opMIRP10001, opMIRP10010, opMIRP10011,
-			opMIRP10100, opMIRP10101, opMIRP10110, opMIRP10111,
-			opMIRP11000, opMIRP11001, opMIRP11010, opMIRP11011,
-			opMIRP11100, opMIRP11101, opMIRP11110, opMIRP11111:
-
-			top -= 2
-			i := h.stack[top]
-			cvtDist := h.getScaledCVT(h.stack[top+1])
-			if (cvtDist - h.gs.singleWidth).abs() < h.gs.singleWidthCutIn {
-				if cvtDist >= 0 {
-					cvtDist = +h.gs.singleWidth
-				} else {
-					cvtDist = -h.gs.singleWidth
-				}
-			}
-
-			if h.gs.zp[1] == 0 {
-				// TODO: implement once we have a .ttf file that triggers
-				// this, so that we can step through C's freetype.
-				return errors.New("truetype: hinting: unimplemented twilight point adjustment")
-			}
-
-			ref := h.point(0, unhinted, h.gs.rp[0])
-			p := h.point(1, unhinted, i)
-			if ref == nil || p == nil {
-				return errors.New("truetype: hinting: point out of range")
-			}
-			oldDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
-
-			ref = h.point(0, current, h.gs.rp[0])
-			p = h.point(1, current, i)
-			if ref == nil || p == nil {
-				return errors.New("truetype: hinting: point out of range")
-			}
-			curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
-
-			if h.gs.autoFlip && oldDist^cvtDist < 0 {
-				cvtDist = -cvtDist
-			}
-
-			// Rounding bit.
-			// TODO: metrics compensation.
-			distance := cvtDist
-			if opcode&0x04 != 0 {
-				// The CVT value is only used if close enough to oldDist.
-				if (h.gs.zp[0] == h.gs.zp[1]) &&
-					((cvtDist - oldDist).abs() > h.gs.controlValueCutIn) {
-
-					distance = oldDist
-				}
-				distance = h.round(distance)
-			}
-
-			// Minimum distance bit.
-			if opcode&0x08 != 0 {
-				if oldDist >= 0 {
-					if distance < h.gs.minDist {
-						distance = h.gs.minDist
-					}
-				} else {
-					if distance > -h.gs.minDist {
-						distance = -h.gs.minDist
-					}
-				}
-			}
-
-			// Set-RP0 bit.
-			h.gs.rp[1] = h.gs.rp[0]
-			h.gs.rp[2] = i
-			if opcode&0x10 != 0 {
-				h.gs.rp[0] = i
-			}
-
-			// Move the point.
-			h.move(p, distance-curDist, true)
-
 		default:
-			return errors.New("truetype: hinting: unrecognized instruction")
+			if opcode < opPUSHB000 {
+				return errors.New("truetype: hinting: unrecognized instruction")
+			}
+
+			if opcode < opMDRP00000 {
+				// PUSHxxxx opcode.
+
+				if opcode < opPUSHW000 {
+					opcode -= opPUSHB000 - 1
+				} else {
+					opcode -= opPUSHW000 - 1 - 0x80
+				}
+				goto push
+			}
+
+			if opcode < opMIRP00000 {
+				// MDRPxxxxx opcode.
+
+				top--
+				i := h.stack[top]
+				ref := h.point(0, current, h.gs.rp[0])
+				p := h.point(1, current, i)
+				if ref == nil || p == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+
+				oldDist := f26dot6(0)
+				if h.gs.zp[0] == 0 || h.gs.zp[1] == 0 {
+					p0 := h.point(1, unhinted, i)
+					p1 := h.point(0, unhinted, h.gs.rp[0])
+					oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+				} else {
+					p0 := h.point(1, inFontUnits, i)
+					p1 := h.point(0, inFontUnits, h.gs.rp[0])
+					oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+					oldDist = f26dot6(h.font.scale(h.scale * int32(oldDist)))
+				}
+
+				// Single-width cut-in test.
+				if x := (oldDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
+					if oldDist >= 0 {
+						oldDist = +h.gs.singleWidth
+					} else {
+						oldDist = -h.gs.singleWidth
+					}
+				}
+
+				// Rounding bit.
+				// TODO: metrics compensation.
+				distance := oldDist
+				if opcode&0x04 != 0 {
+					distance = h.round(oldDist)
+				}
+
+				// Minimum distance bit.
+				if opcode&0x08 != 0 {
+					if oldDist >= 0 {
+						if distance < h.gs.minDist {
+							distance = h.gs.minDist
+						}
+					} else {
+						if distance > -h.gs.minDist {
+							distance = -h.gs.minDist
+						}
+					}
+				}
+
+				// Set-RP0 bit.
+				h.gs.rp[1] = h.gs.rp[0]
+				h.gs.rp[2] = i
+				if opcode&0x10 != 0 {
+					h.gs.rp[0] = i
+				}
+
+				// Move the point.
+				oldDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+				h.move(p, distance-oldDist, true)
+
+			} else {
+				// MIRPxxxxx opcode.
+
+				top -= 2
+				i := h.stack[top]
+				cvtDist := h.getScaledCVT(h.stack[top+1])
+				if (cvtDist - h.gs.singleWidth).abs() < h.gs.singleWidthCutIn {
+					if cvtDist >= 0 {
+						cvtDist = +h.gs.singleWidth
+					} else {
+						cvtDist = -h.gs.singleWidth
+					}
+				}
+
+				if h.gs.zp[1] == 0 {
+					// TODO: implement once we have a .ttf file that triggers
+					// this, so that we can step through C's freetype.
+					return errors.New("truetype: hinting: unimplemented twilight point adjustment")
+				}
+
+				ref := h.point(0, unhinted, h.gs.rp[0])
+				p := h.point(1, unhinted, i)
+				if ref == nil || p == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				oldDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
+
+				ref = h.point(0, current, h.gs.rp[0])
+				p = h.point(1, current, i)
+				if ref == nil || p == nil {
+					return errors.New("truetype: hinting: point out of range")
+				}
+				curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+
+				if h.gs.autoFlip && oldDist^cvtDist < 0 {
+					cvtDist = -cvtDist
+				}
+
+				// Rounding bit.
+				// TODO: metrics compensation.
+				distance := cvtDist
+				if opcode&0x04 != 0 {
+					// The CVT value is only used if close enough to oldDist.
+					if (h.gs.zp[0] == h.gs.zp[1]) &&
+						((cvtDist - oldDist).abs() > h.gs.controlValueCutIn) {
+
+						distance = oldDist
+					}
+					distance = h.round(distance)
+				}
+
+				// Minimum distance bit.
+				if opcode&0x08 != 0 {
+					if oldDist >= 0 {
+						if distance < h.gs.minDist {
+							distance = h.gs.minDist
+						}
+					} else {
+						if distance > -h.gs.minDist {
+							distance = -h.gs.minDist
+						}
+					}
+				}
+
+				// Set-RP0 bit.
+				h.gs.rp[1] = h.gs.rp[0]
+				h.gs.rp[2] = i
+				if opcode&0x10 != 0 {
+					h.gs.rp[0] = i
+				}
+
+				// Move the point.
+				h.move(p, distance-curDist, true)
+			}
 		}
 		pc++
 		continue
