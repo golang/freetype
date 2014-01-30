@@ -878,7 +878,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			h.stack[top-1] = bool2int32(h.stack[top-1] == 0)
 
 		case opDELTAP1:
-			goto deltap
+			goto delta
 
 		case opSDB:
 			top--
@@ -938,11 +938,8 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			top -= 2
 			h.setScaledCVT(h.stack[top], f26dot6(h.font.scale(h.scale*h.stack[top+1])))
 
-		case opDELTAP2, opDELTAP3:
-			goto deltap
-
-		case opDELTAC1, opDELTAC2, opDELTAC3:
-			goto deltac
+		case opDELTAP2, opDELTAP3, opDELTAC1, opDELTAC2, opDELTAC3:
+			goto delta
 
 		case opSROUND, opS45ROUND:
 			top--
@@ -1341,48 +1338,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			continue
 		}
 
-		// TODO: merge the deltap and deltac code, when we have enough test cases
-		// (at least full coverage of Arial) to have confidence in re-factoring.
-
-	deltap:
+	delta:
 		{
-			top--
-			n := f26dot6(h.stack[top])
-			if top < 2*int(h.gs.loop) {
-				return errors.New("truetype: hinting: stack underflow")
-			}
-			for ; n > 0; n-- {
-				top -= 2
-				p := h.point(0, current, h.stack[top+1])
-				if p == nil {
-					return errors.New("truetype: hinting: point out of range")
-				}
-				b := h.stack[top]
-				c := (b & 0xf0) >> 4
-				switch opcode {
-				case opDELTAP2:
-					c += 16
-				case opDELTAP3:
-					c += 32
-				}
-				c += h.gs.deltaBase
-				if ppem := (h.scale + 1<<5) >> 6; ppem != c {
-					continue
-				}
-				b = (b & 0x0f) - 8
-				if b >= 0 {
-					b++
-				}
-				b = b * 64 / (1 << uint32(h.gs.deltaShift))
-				h.move(p, f26dot6(b), true)
-			}
-			pc++
-			continue
-		}
-
-	deltac:
-		{
-			if !h.scaledCVTInitialized {
+			if opcode >= opDELTAC1 && !h.scaledCVTInitialized {
 				h.initializeScaledCVT()
 			}
 			top--
@@ -1395,9 +1353,9 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				b := h.stack[top]
 				c := (b & 0xf0) >> 4
 				switch opcode {
-				case opDELTAC2:
+				case opDELTAP2, opDELTAC2:
 					c += 16
-				case opDELTAC3:
+				case opDELTAP3, opDELTAC3:
 					c += 32
 				}
 				c += h.gs.deltaBase
@@ -1409,11 +1367,19 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 					b++
 				}
 				b = b * 64 / (1 << uint32(h.gs.deltaShift))
-				a := h.stack[top+1]
-				if a < 0 || len(h.scaledCVT) <= int(a) {
-					return errors.New("truetype: hinting: index out of range")
+				if opcode >= opDELTAC1 {
+					a := h.stack[top+1]
+					if a < 0 || len(h.scaledCVT) <= int(a) {
+						return errors.New("truetype: hinting: index out of range")
+					}
+					h.scaledCVT[a] += f26dot6(b)
+				} else {
+					p := h.point(0, current, h.stack[top+1])
+					if p == nil {
+						return errors.New("truetype: hinting: point out of range")
+					}
+					h.move(p, f26dot6(b), true)
 				}
-				h.scaledCVT[a] += f26dot6(b)
 			}
 			pc++
 			continue
