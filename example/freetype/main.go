@@ -23,6 +23,7 @@ import (
 var (
 	dpi      = flag.Float64("dpi", 72, "screen resolution in Dots Per Inch")
 	fontfile = flag.String("fontfile", "../../testdata/luxisr.ttf", "filename of the ttf font")
+	hinting  = flag.String("hinting", "none", "none | full")
 	size     = flag.Float64("size", 12, "font size in points")
 	spacing  = flag.Float64("spacing", 1.5, "line spacing (e.g. 2 means double spaced)")
 	wonb     = flag.Bool("whiteonblack", false, "white text on a black background")
@@ -96,6 +97,12 @@ func main() {
 	c.SetClip(rgba.Bounds())
 	c.SetDst(rgba)
 	c.SetSrc(fg)
+	switch *hinting {
+	default:
+		c.SetHinting(freetype.NoHinting)
+	case "full":
+		c.SetHinting(freetype.FullHinting)
+	}
 
 	// Draw the guidelines.
 	for i := 0; i < 200; i++ {

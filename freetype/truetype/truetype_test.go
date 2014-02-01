@@ -61,7 +61,7 @@ func TestParse(t *testing.T) {
 	}
 
 	g := NewGlyphBuf()
-	err = g.Load(font, fupe, i0, nil)
+	err = g.Load(font, fupe, i0, NoHinting)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -262,7 +262,7 @@ var scalingTestCases = []struct {
 	{"x-times-new-roman", 13},
 }
 
-func testScaling(t *testing.T, hinter *Hinter) {
+func testScaling(t *testing.T, h Hinting) {
 	for _, tc := range scalingTestCases {
 		font, testdataIsOptional, err := parseTestdataFont(tc.name)
 		if err != nil {
@@ -273,12 +273,12 @@ func testScaling(t *testing.T, hinter *Hinter) {
 			}
 			continue
 		}
-		hinting := "sans"
-		if hinter != nil {
-			hinting = "with"
+		hintingStr := "sans"
+		if h != NoHinting {
+			hintingStr = "with"
 		}
 		f, err := os.Open(fmt.Sprintf(
-			"../../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hinting))
+			"../../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hintingStr))
 		if err != nil {
 			t.Errorf("%s: Open: %v", tc.name, err)
 			continue
@@ -314,7 +314,7 @@ func testScaling(t *testing.T, hinter *Hinter) {
 
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
-			if err = glyphBuf.Load(font, tc.size*64, Index(i), hinter); err != nil {
+			if err = glyphBuf.Load(font, tc.size*64, Index(i), h); err != nil {
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
 				continue
 			}
@@ -354,9 +354,9 @@ func testScaling(t *testing.T, hinter *Hinter) {
 }
 
 func TestScalingSansHinting(t *testing.T) {
-	testScaling(t, nil)
+	testScaling(t, NoHinting)
 }
 
 func TestScalingWithHinting(t *testing.T) {
-	testScaling(t, &Hinter{})
+	testScaling(t, FullHinting)
 }

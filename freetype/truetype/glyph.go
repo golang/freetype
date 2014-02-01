@@ -5,6 +5,18 @@
 
 package truetype
 
+// Hinting is the policy for snapping a glyph's contours to pixel boundaries.
+type Hinting int32
+
+const (
+	// NoHinting means to not perform any hinting.
+	NoHinting Hinting = iota
+	// FullHinting means to use the font's hinting instructions.
+	FullHinting
+
+	// TODO: implement VerticalHinting.
+)
+
 // A Point is a co-ordinate pair plus whether it is ``on'' a contour or an
 // ``off'' control point.
 type Point struct {
@@ -21,8 +33,8 @@ type GlyphBuf struct {
 	AdvanceWidth int32
 	// B is the glyph's bounding box.
 	B Bounds
-	// Point contains all Points from all contours of the glyph. If a
-	// Hinter was used to load a glyph then Unhinted contains those
+	// Point contains all Points from all contours of the glyph. If
+	// hinting was used to load a glyph then Unhinted contains those
 	// Points before they were hinted, and InFontUnits contains those
 	// Points before they were hinted and scaled.
 	Point, Unhinted, InFontUnits []Point
@@ -32,9 +44,10 @@ type GlyphBuf struct {
 	// is interpreted to mean zero.
 	End []int
 
-	font   *Font
-	hinter *Hinter
-	scale  int32
+	font    *Font
+	scale   int32
+	hinting Hinting
+	hinter  hinter
 	// phantomPoints are the co-ordinates of the synthetic phantom points
 	// used for hinting and bounding box calculations.
 	phantomPoints [4]Point
@@ -73,22 +86,21 @@ const (
 
 // Load loads a glyph's contours from a Font, overwriting any previously
 // loaded contours for this GlyphBuf. scale is the number of 26.6 fixed point
-// units in 1 em. The Hinter is optional; if non-nil, then the resulting glyph
-// will be hinted by the Font's bytecode instructions.
-func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
+// units in 1 em, i is the glyph index, and h is the hinting policy.
+func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h Hinting) error {
 	g.Point = g.Point[:0]
 	g.Unhinted = g.Unhinted[:0]
 	g.InFontUnits = g.InFontUnits[:0]
 	g.End = g.End[:0]
 	g.font = f
-	g.hinter = h
+	g.hinting = h
 	g.scale = scale
 	g.pp1x = 0
 	g.phantomPoints = [4]Point{}
 	g.metricsSet = false
 
-	if h != nil {
-		if err := h.init(f, scale); err != nil {
+	if h != NoHinting {
+		if err := g.hinter.init(f, scale); err != nil {
 			return err
 		}
 	}
@@ -99,7 +111,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	// and should be cleaned up once we have all the testScaling tests passing,
 	// plus additional tests for Freetype-Go's bounding boxes matching C Freetype's.
 	pp1x := g.pp1x
-	if h != nil {
+	if h != NoHinting {
 		pp1x = g.phantomPoints[0].X
 	}
 	if pp1x != 0 {
@@ -109,7 +121,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 	}
 
 	advanceWidth := g.phantomPoints[1].X - g.phantomPoints[0].X
-	if h != nil {
+	if h != NoHinting {
 		if len(f.hdmx) >= 8 {
 			if n := u32(f.hdmx, 4); n > 3+uint32(i) {
 				for hdmx := f.hdmx[8:]; uint32(len(hdmx)) >= n; hdmx = hdmx[n:] {
@@ -151,7 +163,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h *Hinter) error {
 			}
 		}
 		// Snap the box to the grid, if hinting is on.
-		if h != nil {
+		if h != NoHinting {
 			g.B.XMin &^= 63
 			g.B.YMin &^= 63
 			g.B.XMax += 63
@@ -221,7 +233,7 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 		program := g.loadSimple(glyf, ne)
 		g.addPhantomsAndScale(np0, np0, true, true)
 		pp1x = g.Point[len(g.Point)-4].X
-		if g.hinter != nil {
+		if g.hinting != NoHinting {
 			if len(program) != 0 {
 				err := g.hinter.run(
 					program,
@@ -425,7 +437,7 @@ func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 	}
 
 	instrLen := 0
-	if g.hinter != nil && offset+2 <= len(glyf) {
+	if g.hinting != NoHinting && offset+2 <= len(glyf) {
 		instrLen = int(u16(glyf, offset))
 		offset += 2
 	}
@@ -473,7 +485,7 @@ func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple, adjust bool) {
 	// Add the four phantom points.
 	g.Point = append(g.Point, g.phantomPoints[:]...)
 	// Scale the points.
-	if simple && g.hinter != nil {
+	if simple && g.hinting != NoHinting {
 		g.InFontUnits = append(g.InFontUnits, g.Point[np1:]...)
 	}
 	for i := np1; i < len(g.Point); i++ {
@@ -481,7 +493,7 @@ func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple, adjust bool) {
 		p.X = g.font.scale(g.scale * p.X)
 		p.Y = g.font.scale(g.scale * p.Y)
 	}
-	if g.hinter == nil {
+	if g.hinting == NoHinting {
 		return
 	}
 	// Round the 1st phantom point to the grid, shifting all other points equally.

@@ -35,16 +35,15 @@ type callStackEntry struct {
 	loopCount int32
 }
 
-// Hinter implements bytecode hinting. Pass a Hinter to GlyphBuf.Load to hint
-// the resulting glyph. A Hinter can be re-used to hint a series of glyphs from
-// a Font.
-type Hinter struct {
+// hinter implements bytecode hinting. A hinter can be re-used to hint a series
+// of glyphs from a Font.
+type hinter struct {
 	stack, store []int32
 
 	// functions is a map from function number to bytecode.
 	functions map[int32][]byte
 
-	// font and scale are the font and scale last used for this Hinter.
+	// font and scale are the font and scale last used for this hinter.
 	// Changing the font will require running the new font's fpgm bytecode.
 	// Changing either will require running the font's prep bytecode.
 	font  *Font
@@ -114,7 +113,7 @@ func resetTwilightPoints(f *Font, p []Point) []Point {
 	return p
 }
 
-func (h *Hinter) init(f *Font, scale int32) error {
+func (h *hinter) init(f *Font, scale int32) error {
 	h.points[twilightZone][0] = resetTwilightPoints(f, h.points[twilightZone][0])
 	h.points[twilightZone][1] = resetTwilightPoints(f, h.points[twilightZone][1])
 	h.points[twilightZone][2] = resetTwilightPoints(f, h.points[twilightZone][2])
@@ -171,7 +170,7 @@ func (h *Hinter) init(f *Font, scale int32) error {
 	return nil
 }
 
-func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, ends []int) error {
+func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, ends []int) error {
 	h.gs = h.defaultGS
 	h.points[glyphZone][current] = pCurrent
 	h.points[glyphZone][unhinted] = pUnhinted
@@ -1388,7 +1387,7 @@ func (h *Hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 	return nil
 }
 
-func (h *Hinter) initializeScaledCVT() {
+func (h *hinter) initializeScaledCVT() {
 	h.scaledCVTInitialized = true
 	if n := len(h.font.cvt) / 2; n <= cap(h.scaledCVT) {
 		h.scaledCVT = h.scaledCVT[:n]
@@ -1405,7 +1404,7 @@ func (h *Hinter) initializeScaledCVT() {
 }
 
 // getScaledCVT returns the scaled value from the font's Control Value Table.
-func (h *Hinter) getScaledCVT(i int32) f26dot6 {
+func (h *hinter) getScaledCVT(i int32) f26dot6 {
 	if !h.scaledCVTInitialized {
 		h.initializeScaledCVT()
 	}
@@ -1416,7 +1415,7 @@ func (h *Hinter) getScaledCVT(i int32) f26dot6 {
 }
 
 // setScaledCVT overrides the scaled value from the font's Control Value Table.
-func (h *Hinter) setScaledCVT(i int32, v f26dot6) {
+func (h *hinter) setScaledCVT(i int32, v f26dot6) {
 	if !h.scaledCVTInitialized {
 		h.initializeScaledCVT()
 	}
@@ -1426,7 +1425,7 @@ func (h *Hinter) setScaledCVT(i int32, v f26dot6) {
 	h.scaledCVT[i] = v
 }
 
-func (h *Hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
+func (h *hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
 	points := h.points[h.gs.zp[zonePointer]][pt]
 	if i < 0 || len(points) <= int(i) {
 		return nil
@@ -1434,7 +1433,7 @@ func (h *Hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
 	return &points[i]
 }
 
-func (h *Hinter) move(p *Point, distance f26dot6, touch bool) {
+func (h *hinter) move(p *Point, distance f26dot6, touch bool) {
 	fvx := int64(h.gs.fv[0])
 	pvx := int64(h.gs.pv[0])
 	if fvx == 0x4000 && pvx == 0x4000 {
@@ -1472,7 +1471,7 @@ func (h *Hinter) move(p *Point, distance f26dot6, touch bool) {
 	}
 }
 
-func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
+func (h *hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 	if p1 > p2 {
 		return
 	}
@@ -1567,7 +1566,7 @@ func (h *Hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 	}
 }
 
-func (h *Hinter) iupShift(interpY bool, p1, p2, p int) {
+func (h *hinter) iupShift(interpY bool, p1, p2, p int) {
 	var delta int32
 	if interpY {
 		delta = h.points[glyphZone][current][p].Y - h.points[glyphZone][unhinted][p].Y
@@ -1589,7 +1588,7 @@ func (h *Hinter) iupShift(interpY bool, p1, p2, p int) {
 	}
 }
 
-func (h *Hinter) displacement(useZP1 bool) (zonePointer uint32, i int32, d f26dot6, ok bool) {
+func (h *hinter) displacement(useZP1 bool) (zonePointer uint32, i int32, d f26dot6, ok bool) {
 	zonePointer, i = uint32(0), h.gs.rp[1]
 	if useZP1 {
 		zonePointer, i = 1, h.gs.rp[2]
@@ -1726,7 +1725,7 @@ func mulDiv(x, y, z int64) int64 {
 
 // round rounds the given number. The rounding algorithm is described at
 // https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
-func (h *Hinter) round(x f26dot6) f26dot6 {
+func (h *hinter) round(x f26dot6) f26dot6 {
 	if h.gs.roundPeriod == 0 {
 		// Rounding is off.
 		return x

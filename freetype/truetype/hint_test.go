@@ -554,7 +554,7 @@ func TestBytecode(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		h := &Hinter{}
+		h := &hinter{}
 		h.init(&Font{
 			maxStorage:       32,
 			maxStackElements: 100,
@@ -583,10 +583,10 @@ func TestBytecode(t *testing.T) {
 	}
 }
 
-// TestMove tests that the Hinter.move method matches the output of the C
+// TestMove tests that the hinter.move method matches the output of the C
 // Freetype implementation.
 func TestMove(t *testing.T) {
-	h, p := Hinter{}, Point{}
+	h, p := hinter{}, Point{}
 	testCases := []struct {
 		pvX, pvY, fvX, fvY f2dot14
 		wantX, wantY       int32

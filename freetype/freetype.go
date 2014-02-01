@@ -54,6 +54,16 @@ func Pt(x, y int) raster.Point {
 	}
 }
 
+// Hinting is the policy for snapping a glyph's contours to pixel boundaries.
+type Hinting int32
+
+const (
+	// NoHinting means to not perform any hinting.
+	NoHinting = Hinting(truetype.NoHinting)
+	// FullHinting means to use the font's hinting instructions.
+	FullHinting = Hinting(truetype.FullHinting)
+)
+
 // A Context holds the state for drawing text in a given font and size.
 type Context struct {
 	r        *raster.Rasterizer
@@ -65,9 +75,10 @@ type Context struct {
 	dst draw.Image
 	src image.Image
 	// fontSize and dpi are used to calculate scale. scale is the number of
-	// 26.6 fixed point units in 1 em.
+	// 26.6 fixed point units in 1 em. hinting is the hinting policy.
 	fontSize, dpi float64
 	scale         int32
+	hinting       Hinting
 	// cache is the glyph cache.
 	cache [nGlyphs * nXFractions * nYFractions]cacheEntry
 }
@@ -131,7 +142,7 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy raster.Fix32) {
 func (c *Context) rasterize(glyph truetype.Index, fx, fy raster.Fix32) (
 	raster.Fix32, *image.Alpha, image.Point, error) {
 
-	if err := c.glyphBuf.Load(c.font, c.scale, glyph, nil); err != nil {
+	if err := c.glyphBuf.Load(c.font, c.scale, glyph, truetype.Hinting(c.hinting)); err != nil {
 		return 0, nil, image.Point{}, err
 	}
 	// Calculate the integer-pixel bounds for the glyph.
@@ -204,8 +215,11 @@ func (c *Context) DrawString(s string, p raster.Point) (raster.Point, error) {
 	for _, rune := range s {
 		index := c.font.Index(rune)
 		if hasPrev {
-			// TODO: adjust for hinting.
-			p.X += raster.Fix32(c.font.Kerning(c.scale, prev, index)) << 2
+			kern := raster.Fix32(c.font.Kerning(c.scale, prev, index)) << 2
+			if c.hinting != NoHinting {
+				kern = (kern + 128) &^ 255
+			}
+			p.X += kern
 		}
 		advanceWidth, mask, offset, err := c.glyph(index, p)
 		if err != nil {
@@ -268,6 +282,14 @@ func (c *Context) SetFontSize(fontSize float64) {
 	}
 	c.fontSize = fontSize
 	c.recalc()
+}
+
+// SetHinting sets the hinting policy.
+func (c *Context) SetHinting(hinting Hinting) {
+	c.hinting = hinting
+	for i := range c.cache {
+		c.cache[i] = cacheEntry{}
+	}
 }
 
 // SetDst sets the destination image for draw operations.
