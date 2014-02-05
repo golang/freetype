@@ -119,10 +119,12 @@ func (f *Font) parseCmap() error {
 		languageIndependent = 0
 
 		// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
-		// least-significant 16-bit Platform Specific ID.
-		unicodeEncoding       = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
-		microsoftUCS2Encoding = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
-		microsoftUCS4Encoding = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
+		// least-significant 16-bit Platform Specific ID. The magic numbers are
+		// specified at https://www.microsoft.com/typography/otspec/name.htm
+		unicodeEncoding         = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
+		microsoftSymbolEncoding = 0x00030000 // PID = 3 (Microsoft), PSID = 0 (Symbol)
+		microsoftUCS2Encoding   = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
+		microsoftUCS4Encoding   = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
 	)
 
 	if len(f.cmap) < 4 {
@@ -143,7 +145,11 @@ func (f *Font) parseCmap() error {
 		if pidPsid == unicodeEncoding {
 			offset, found = int(o), true
 			break
-		} else if pidPsid == microsoftUCS2Encoding || pidPsid == microsoftUCS4Encoding {
+
+		} else if pidPsid == microsoftSymbolEncoding ||
+			pidPsid == microsoftUCS2Encoding ||
+			pidPsid == microsoftUCS4Encoding {
+
 			offset, found = int(o), true
 			// We don't break out of the for loop, so that Unicode can override Microsoft.
 		}
