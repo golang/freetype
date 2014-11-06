@@ -5,7 +5,7 @@
 #
 # Run it from this directory (testdata).
 #
-# It has only been tested on an Ubuntu 12.04 system.
+# It has only been tested on an Ubuntu 14.04 system.
 
 set -e
 
