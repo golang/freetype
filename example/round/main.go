@@ -3,6 +3,11 @@
 // FreeType License or the GNU General Public License version 2 (or
 // any later version), both of which can be found in the LICENSE file.
 
+// +build ignore
+//
+// This build tag means that "go install github.com/golang/freetype/..."
+// doesn't install this example program. Use "go run main.go" to run it.
+
 // This program visualizes the quadratic approximation to the circle, used to
 // implement round joins when stroking paths. The approximation is used in the
 // stroking code for arcs between 0 and 45 degrees, but is visualized here
