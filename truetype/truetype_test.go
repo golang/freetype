@@ -17,7 +17,7 @@ import (
 )
 
 func parseTestdataFont(name string) (font *Font, testdataIsOptional bool, err error) {
-	b, err := ioutil.ReadFile(fmt.Sprintf("../../testdata/%s.ttf", name))
+	b, err := ioutil.ReadFile(fmt.Sprintf("../testdata/%s.ttf", name))
 	if err != nil {
 		// The "x-foo" fonts are optional tests, as they are not checked
 		// in for copyright or file size reasons.
@@ -282,7 +282,7 @@ func testScaling(t *testing.T, h Hinting) {
 			hintingStr = "with"
 		}
 		f, err := os.Open(fmt.Sprintf(
-			"../../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hintingStr))
+			"../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hintingStr))
 		if err != nil {
 			t.Errorf("%s: Open: %v", tc.name, err)
 			continue
