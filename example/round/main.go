@@ -29,6 +29,13 @@ import (
 	"github.com/golang/freetype/raster"
 )
 
+// pDot returns the dot product p·q.
+func pDot(p, q raster.Point) raster.Fix64 {
+	px, py := int64(p.X), int64(p.Y)
+	qx, qy := int64(q.X), int64(q.Y)
+	return raster.Fix64(px*qx + py*qy)
+}
+
 func main() {
 	const (
 		n = 17
@@ -60,7 +67,7 @@ func main() {
 		// Add another quadratic segment whose angle ranges between 0 and 90 degrees.
 		// For an explanation of the magic constants 22, 150, 181 and 256, read the
 		// comments in the freetype/raster package.
-		dot := 256 * d.Dot(raster.Point{X: 0, Y: r}) / (r * r)
+		dot := 256 * pDot(d, raster.Point{X: 0, Y: r}) / (r * r)
 		multiple := raster.Fix32(150 - 22*(dot-181)/(256-181))
 		z.Add2(c.Add(raster.Point{X: dx, Y: r + dy}.Mul(multiple)), c.Add(d))
 		// Close the curve.

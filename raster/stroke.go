@@ -45,7 +45,7 @@ func roundCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
 	// The cubic Bézier approximation to a circle involves the magic number
 	// (√2 - 1) * 4/3, which is approximately 141/256.
 	const k = 141
-	e := n1.Rot90CCW()
+	e := pRot90CCW(n1)
 	side := pivot.Add(e)
 	start, end := pivot.Sub(n1), pivot.Add(n1)
 	d, e := n1.Mul(k), e.Mul(k)
@@ -64,7 +64,7 @@ func buttCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
 var SquareCapper Capper = CapperFunc(squareCapper)
 
 func squareCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
-	e := n1.Rot90CCW()
+	e := pRot90CCW(n1)
 	side := pivot.Add(e)
 	p.Add1(side.Sub(n1))
 	p.Add1(side.Add(n1))
@@ -75,13 +75,13 @@ func squareCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
 var RoundJoiner Joiner = JoinerFunc(roundJoiner)
 
 func roundJoiner(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
-	dot := n0.Rot90CW().Dot(n1)
+	dot := pDot(pRot90CW(n0), n1)
 	if dot >= 0 {
 		addArc(lhs, pivot, n0, n1)
 		rhs.Add1(pivot.Sub(n1))
 	} else {
 		lhs.Add1(pivot.Add(n1))
-		addArc(rhs, pivot, n0.Neg(), n1.Neg())
+		addArc(rhs, pivot, pNeg(n0), pNeg(n1))
 	}
 }
 
@@ -94,30 +94,31 @@ func bevelJoiner(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
 }
 
 // addArc adds a circular arc from pivot+n0 to pivot+n1 to p. The shorter of
-// the two possible arcs is taken, i.e. the one spanning <= 180 degrees.
-// The two vectors n0 and n1 must be of equal length.
+// the two possible arcs is taken, i.e. the one spanning <= 180 degrees. The
+// two vectors n0 and n1 must be of equal length.
 func addArc(p Adder, pivot, n0, n1 Point) {
 	// r2 is the square of the length of n0.
-	r2 := n0.Dot(n0)
+	r2 := pDot(n0, n0)
 	if r2 < epsilon {
 		// The arc radius is so small that we collapse to a straight line.
 		p.Add1(pivot.Add(n1))
 		return
 	}
 	// We approximate the arc by 0, 1, 2 or 3 45-degree quadratic segments plus
-	// a final quadratic segment from s to n1. Each 45-degree segment has control
-	// points {1, 0}, {1, tan(π/8)} and {1/√2, 1/√2} suitably scaled, rotated and
-	// translated. tan(π/8) is approximately 106/256.
+	// a final quadratic segment from s to n1. Each 45-degree segment has
+	// control points {1, 0}, {1, tan(π/8)} and {1/√2, 1/√2} suitably scaled,
+	// rotated and translated. tan(π/8) is approximately 106/256.
 	const tpo8 = 106
 	var s Point
-	// We determine which octant the angle between n0 and n1 is in via three dot products.
-	// m0, m1 and m2 are n0 rotated clockwise by 45, 90 and 135 degrees.
-	m0 := n0.Rot45CW()
-	m1 := n0.Rot90CW()
-	m2 := m0.Rot90CW()
-	if m1.Dot(n1) >= 0 {
-		if n0.Dot(n1) >= 0 {
-			if m2.Dot(n1) <= 0 {
+	// We determine which octant the angle between n0 and n1 is in via three
+	// dot products. m0, m1 and m2 are n0 rotated clockwise by 45, 90 and 135
+	// degrees.
+	m0 := pRot45CW(n0)
+	m1 := pRot90CW(n0)
+	m2 := pRot90CW(m0)
+	if pDot(m1, n1) >= 0 {
+		if pDot(n0, n1) >= 0 {
+			if pDot(m2, n1) <= 0 {
 				// n1 is between 0 and 45 degrees clockwise of n0.
 				s = n0
 			} else {
@@ -129,7 +130,7 @@ func addArc(p Adder, pivot, n0, n1 Point) {
 			pm1, n0t := pivot.Add(m1), n0.Mul(tpo8)
 			p.Add2(pivot.Add(n0).Add(m1.Mul(tpo8)), pivot.Add(m0))
 			p.Add2(pm1.Add(n0t), pm1)
-			if m0.Dot(n1) >= 0 {
+			if pDot(m0, n1) >= 0 {
 				// n1 is between 90 and 135 degrees clockwise of n0.
 				s = m1
 			} else {
@@ -139,41 +140,44 @@ func addArc(p Adder, pivot, n0, n1 Point) {
 			}
 		}
 	} else {
-		if n0.Dot(n1) >= 0 {
-			if m0.Dot(n1) >= 0 {
+		if pDot(n0, n1) >= 0 {
+			if pDot(m0, n1) >= 0 {
 				// n1 is between 0 and 45 degrees counter-clockwise of n0.
 				s = n0
 			} else {
 				// n1 is between 45 and 90 degrees counter-clockwise of n0.
 				p.Add2(pivot.Add(n0).Sub(m1.Mul(tpo8)), pivot.Sub(m2))
-				s = m2.Neg()
+				s = pNeg(m2)
 			}
 		} else {
 			pm1, n0t := pivot.Sub(m1), n0.Mul(tpo8)
 			p.Add2(pivot.Add(n0).Sub(m1.Mul(tpo8)), pivot.Sub(m2))
 			p.Add2(pm1.Add(n0t), pm1)
-			if m2.Dot(n1) <= 0 {
+			if pDot(m2, n1) <= 0 {
 				// n1 is between 90 and 135 degrees counter-clockwise of n0.
-				s = m1.Neg()
+				s = pNeg(m1)
 			} else {
 				// n1 is between 135 and 180 degrees counter-clockwise of n0.
 				p.Add2(pm1.Sub(n0t), pivot.Sub(m0))
-				s = m0.Neg()
+				s = pNeg(m0)
 			}
 		}
 	}
 	// The final quadratic segment has two endpoints s and n1 and the middle
-	// control point is a multiple of s.Add(n1), i.e. it is on the angle bisector
-	// of those two points. The multiple ranges between 128/256 and 150/256 as
-	// the angle between s and n1 ranges between 0 and 45 degrees.
-	// When the angle is 0 degrees (i.e. s and n1 are coincident) then s.Add(n1)
-	// is twice s and so the middle control point of the degenerate quadratic
-	// segment should be half s.Add(n1), and half = 128/256.
+	// control point is a multiple of s.Add(n1), i.e. it is on the angle
+	// bisector of those two points. The multiple ranges between 128/256 and
+	// 150/256 as the angle between s and n1 ranges between 0 and 45 degrees.
+	//
+	// When the angle is 0 degrees (i.e. s and n1 are coincident) then
+	// s.Add(n1) is twice s and so the middle control point of the degenerate
+	// quadratic segment should be half s.Add(n1), and half = 128/256.
+	//
 	// When the angle is 45 degrees then 150/256 is the ratio of the lengths of
 	// the two vectors {1, tan(π/8)} and {1 + 1/√2, 1/√2}.
+	//
 	// d is the normalized dot product between s and n1. Since the angle ranges
 	// between 0 and 45 degrees then d ranges between 256/256 and 181/256.
-	d := 256 * s.Dot(n1) / r2
+	d := 256 * pDot(s, n1) / r2
 	multiple := Fix32(150 - 22*(d-181)/(256-181))
 	p.Add2(pivot.Add(s.Add(n1).Mul(multiple)), pivot.Add(n1))
 }
@@ -186,13 +190,13 @@ func midpoint(a, b Point) Point {
 // angleGreaterThan45 returns whether the angle between two vectors is more
 // than 45 degrees.
 func angleGreaterThan45(v0, v1 Point) bool {
-	v := v0.Rot45CCW()
-	return v.Dot(v1) < 0 || v.Rot90CW().Dot(v1) < 0
+	v := pRot45CCW(v0)
+	return pDot(v, v1) < 0 || pDot(pRot90CW(v), v1) < 0
 }
 
 // interpolate returns the point (1-t)*a + t*b.
 func interpolate(a, b Point, t Fix64) Point {
-	s := 65536 - t
+	s := 1<<16 - t
 	x := s*Fix64(a.X) + t*Fix64(b.X)
 	y := s*Fix64(a.Y) + t*Fix64(b.Y)
 	return Point{Fix32(x >> 16), Fix32(y >> 16)}
@@ -268,14 +272,14 @@ func (k *stroker) addNonCurvy2(b, c Point) {
 		c := ps[2*t+0]
 		ab := b.Sub(a)
 		bc := c.Sub(b)
-		abIsSmall := ab.Dot(ab) < Fix64(1<<16)
-		bcIsSmall := bc.Dot(bc) < Fix64(1<<16)
+		abIsSmall := pDot(ab, ab) < Fix64(1<<16)
+		bcIsSmall := pDot(bc, bc) < Fix64(1<<16)
 		if abIsSmall && bcIsSmall {
 			// Approximate the segment by a circular arc.
-			cnorm = bc.Norm(k.u).Rot90CCW()
+			cnorm = pRot90CCW(pNorm(bc, k.u))
 			mac := midpoint(a, c)
 			addArc(k.p, mac, anorm, cnorm)
-			addArc(&k.r, mac, anorm.Neg(), cnorm.Neg())
+			addArc(&k.r, mac, pNeg(anorm), pNeg(cnorm))
 		} else if depth < maxDepth && angleGreaterThan45(ab, bc) {
 			// Divide the segment in two and push both halves on the stack.
 			mab := midpoint(a, b)
@@ -290,8 +294,8 @@ func (k *stroker) addNonCurvy2(b, c Point) {
 			continue
 		} else {
 			// Translate the control points.
-			bnorm := c.Sub(a).Norm(k.u).Rot90CCW()
-			cnorm = bc.Norm(k.u).Rot90CCW()
+			bnorm := pRot90CCW(pNorm(c.Sub(a), k.u))
+			cnorm = pRot90CCW(pNorm(bc, k.u))
 			k.p.Add2(b.Add(bnorm), c.Add(cnorm))
 			k.r.Add2(b.Sub(bnorm), c.Sub(cnorm))
 		}
@@ -307,7 +311,7 @@ func (k *stroker) addNonCurvy2(b, c Point) {
 
 // Add1 adds a linear segment to the stroker.
 func (k *stroker) Add1(b Point) {
-	bnorm := b.Sub(k.a).Norm(k.u).Rot90CCW()
+	bnorm := pRot90CCW(pNorm(b.Sub(k.a), k.u))
 	if len(k.r) == 0 {
 		k.p.Start(k.a.Add(bnorm))
 		k.r.Start(k.a.Sub(bnorm))
@@ -323,7 +327,7 @@ func (k *stroker) Add1(b Point) {
 func (k *stroker) Add2(b, c Point) {
 	ab := b.Sub(k.a)
 	bc := c.Sub(b)
-	abnorm := ab.Norm(k.u).Rot90CCW()
+	abnorm := pRot90CCW(pNorm(ab, k.u))
 	if len(k.r) == 0 {
 		k.p.Start(k.a.Add(abnorm))
 		k.r.Start(k.a.Sub(abnorm))
@@ -332,10 +336,10 @@ func (k *stroker) Add2(b, c Point) {
 	}
 
 	// Approximate nearly-degenerate quadratics by linear segments.
-	abIsSmall := ab.Dot(ab) < epsilon
-	bcIsSmall := bc.Dot(bc) < epsilon
+	abIsSmall := pDot(ab, ab) < epsilon
+	bcIsSmall := pDot(bc, bc) < epsilon
 	if abIsSmall || bcIsSmall {
-		acnorm := c.Sub(k.a).Norm(k.u).Rot90CCW()
+		acnorm := pRot90CCW(pNorm(c.Sub(k.a), k.u))
 		k.p.Add1(c.Add(acnorm))
 		k.r.Add1(c.Sub(acnorm))
 		k.a, k.anorm = c, acnorm
@@ -345,7 +349,7 @@ func (k *stroker) Add2(b, c Point) {
 	// The quadratic segment (k.a, b, c) has a point of maximum curvature.
 	// If this occurs at an end point, we process the segment as a whole.
 	t := curviest2(k.a, b, c)
-	if t <= 0 || t >= 65536 {
+	if t <= 0 || 65536 <= t {
 		k.addNonCurvy2(b, c)
 		return
 	}
@@ -359,13 +363,13 @@ func (k *stroker) Add2(b, c Point) {
 	// If the vectors ab and bc are close to being in opposite directions,
 	// then the decomposition can become unstable, so we approximate the
 	// quadratic segment by two linear segments joined by an arc.
-	bcnorm := bc.Norm(k.u).Rot90CCW()
-	if abnorm.Dot(bcnorm) < -Fix64(k.u)*Fix64(k.u)*2047/2048 {
-		pArc := abnorm.Dot(bc) < 0
+	bcnorm := pRot90CCW(pNorm(bc, k.u))
+	if pDot(abnorm, bcnorm) < -Fix64(k.u)*Fix64(k.u)*2047/2048 {
+		pArc := pDot(abnorm, bc) < 0
 
 		k.p.Add1(mabc.Add(abnorm))
 		if pArc {
-			z := abnorm.Rot90CW()
+			z := pRot90CW(abnorm)
 			addArc(k.p, mabc, abnorm, z)
 			addArc(k.p, mabc, z, bcnorm)
 		}
@@ -374,9 +378,9 @@ func (k *stroker) Add2(b, c Point) {
 
 		k.r.Add1(mabc.Sub(abnorm))
 		if !pArc {
-			z := abnorm.Rot90CW()
-			addArc(&k.r, mabc, abnorm.Neg(), z)
-			addArc(&k.r, mabc, z, bcnorm.Neg())
+			z := pRot90CW(abnorm)
+			addArc(&k.r, mabc, pNeg(abnorm), z)
+			addArc(&k.r, mabc, z, pNeg(bcnorm))
 		}
 		k.r.Add1(mabc.Sub(bcnorm))
 		k.r.Add1(c.Sub(bcnorm))
@@ -423,7 +427,7 @@ func (k *stroker) stroke(q Path) {
 	}
 	// TODO(nigeltao): if q is a closed curve then we should join the first and
 	// last segments instead of capping them.
-	k.cr.Cap(k.p, k.u, q.lastPoint(), k.anorm.Neg())
+	k.cr.Cap(k.p, k.u, q.lastPoint(), pNeg(k.anorm))
 	addPathReversed(k.p, k.r)
 	pivot := q.firstPoint()
 	k.cr.Cap(k.p, k.u, pivot, pivot.Sub(Point{k.r[1], k.r[2]}))

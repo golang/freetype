@@ -76,30 +76,30 @@ func (p Point) Mul(k Fix32) Point {
 	return Point{p.X * k / 256, p.Y * k / 256}
 }
 
-// Neg returns the vector -p, or equivalently p rotated by 180 degrees.
-func (p Point) Neg() Point {
+// pNeg returns the vector -p, or equivalently p rotated by 180 degrees.
+func pNeg(p Point) Point {
 	return Point{-p.X, -p.Y}
 }
 
-// Dot returns the dot product p·q.
-func (p Point) Dot(q Point) Fix64 {
+// pDot returns the dot product p·q.
+func pDot(p, q Point) Fix64 {
 	px, py := int64(p.X), int64(p.Y)
 	qx, qy := int64(q.X), int64(q.Y)
 	return Fix64(px*qx + py*qy)
 }
 
-// Len returns the length of the vector p.
-func (p Point) Len() Fix32 {
+// pLen returns the length of the vector p.
+func pLen(p Point) Fix32 {
 	// TODO(nigeltao): use fixed point math.
 	x := float64(p.X)
 	y := float64(p.Y)
 	return Fix32(math.Sqrt(x*x + y*y))
 }
 
-// Norm returns the vector p normalized to the given length, or the zero Point
-// if p is degenerate.
-func (p Point) Norm(length Fix32) Point {
-	d := p.Len()
+// pNorm returns the vector p normalized to the given length, or zero if p is
+// degenerate.
+func pNorm(p Point, length Fix32) Point {
+	d := pLen(p)
 	if d == 0 {
 		return Point{}
 	}
@@ -109,9 +109,10 @@ func (p Point) Norm(length Fix32) Point {
 	return Point{Fix32(x), Fix32(y)}
 }
 
-// Rot45CW returns the vector p rotated clockwise by 45 degrees.
+// pRot45CW returns the vector p rotated clockwise by 45 degrees.
+//
 // Note that the Y-axis grows downwards, so {1, 0}.Rot45CW is {1/√2, 1/√2}.
-func (p Point) Rot45CW() Point {
+func pRot45CW(p Point) Point {
 	// 181/256 is approximately 1/√2, or sin(π/4).
 	px, py := int64(p.X), int64(p.Y)
 	qx := (+px - py) * 181 / 256
@@ -119,15 +120,17 @@ func (p Point) Rot45CW() Point {
 	return Point{Fix32(qx), Fix32(qy)}
 }
 
-// Rot90CW returns the vector p rotated clockwise by 90 degrees.
+// pRot90CW returns the vector p rotated clockwise by 90 degrees.
+//
 // Note that the Y-axis grows downwards, so {1, 0}.Rot90CW is {0, 1}.
-func (p Point) Rot90CW() Point {
+func pRot90CW(p Point) Point {
 	return Point{-p.Y, p.X}
 }
 
-// Rot135CW returns the vector p rotated clockwise by 135 degrees.
+// pRot135CW returns the vector p rotated clockwise by 135 degrees.
+//
 // Note that the Y-axis grows downwards, so {1, 0}.Rot135CW is {-1/√2, 1/√2}.
-func (p Point) Rot135CW() Point {
+func pRot135CW(p Point) Point {
 	// 181/256 is approximately 1/√2, or sin(π/4).
 	px, py := int64(p.X), int64(p.Y)
 	qx := (-px - py) * 181 / 256
@@ -135,9 +138,10 @@ func (p Point) Rot135CW() Point {
 	return Point{Fix32(qx), Fix32(qy)}
 }
 
-// Rot45CCW returns the vector p rotated counter-clockwise by 45 degrees.
+// pRot45CCW returns the vector p rotated counter-clockwise by 45 degrees.
+//
 // Note that the Y-axis grows downwards, so {1, 0}.Rot45CCW is {1/√2, -1/√2}.
-func (p Point) Rot45CCW() Point {
+func pRot45CCW(p Point) Point {
 	// 181/256 is approximately 1/√2, or sin(π/4).
 	px, py := int64(p.X), int64(p.Y)
 	qx := (+px + py) * 181 / 256
@@ -145,15 +149,17 @@ func (p Point) Rot45CCW() Point {
 	return Point{Fix32(qx), Fix32(qy)}
 }
 
-// Rot90CCW returns the vector p rotated counter-clockwise by 90 degrees.
+// pRot90CCW returns the vector p rotated counter-clockwise by 90 degrees.
+//
 // Note that the Y-axis grows downwards, so {1, 0}.Rot90CCW is {0, -1}.
-func (p Point) Rot90CCW() Point {
+func pRot90CCW(p Point) Point {
 	return Point{p.Y, -p.X}
 }
 
-// Rot135CCW returns the vector p rotated counter-clockwise by 135 degrees.
+// pRot135CCW returns the vector p rotated counter-clockwise by 135 degrees.
+//
 // Note that the Y-axis grows downwards, so {1, 0}.Rot135CCW is {-1/√2, -1/√2}.
-func (p Point) Rot135CCW() Point {
+func pRot135CCW(p Point) Point {
 	// 181/256 is approximately 1/√2, or sin(π/4).
 	px, py := int64(p.X), int64(p.Y)
 	qx := (-px + py) * 181 / 256
