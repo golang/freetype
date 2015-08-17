@@ -3,20 +3,22 @@
 // FreeType License or the GNU General Public License version 2 (or
 // any later version), both of which can be found in the LICENSE file.
 
-// The raster package provides an anti-aliasing 2-D rasterizer.
+// Package raster provides an anti-aliasing 2-D rasterizer.
 //
-// It is part of the larger Freetype-Go suite of font-related packages,
-// but the raster package is not specific to font rasterization, and can
-// be used standalone without any other Freetype-Go package.
+// It is part of the larger Freetype suite of font-related packages, but the
+// raster package is not specific to font rasterization, and can be used
+// standalone without any other Freetype package.
 //
-// Rasterization is done by the same area/coverage accumulation algorithm
-// as the Freetype "smooth" module, and the Anti-Grain Geometry library.
-// A description of the area/coverage algorithm is at
+// Rasterization is done by the same area/coverage accumulation algorithm as
+// the Freetype "smooth" module, and the Anti-Grain Geometry library. A
+// description of the area/coverage algorithm is at
 // http://projects.tuxee.net/cl-vectors/section-the-cl-aa-algorithm
 package raster // import "github.com/golang/freetype/raster"
 
 import (
 	"strconv"
+
+	"golang.org/x/image/math/fixed"
 )
 
 // A cell is part of a linked list (for a given yi co-ordinate) of accumulated
@@ -41,7 +43,7 @@ type Rasterizer struct {
 	splitScale2, splitScale3 int
 
 	// The current pen position.
-	a Point
+	a fixed.Point26_6
 	// The current cell and its area/coverage being accumulated.
 	xi, yi      int
 	area, cover int
@@ -116,12 +118,12 @@ func (r *Rasterizer) setCell(xi, yi int) {
 // scan accumulates area/coverage for the yi'th scanline, going from
 // x0 to x1 in the horizontal direction (in 24.8 fixed point co-ordinates)
 // and from y0f to y1f fractional vertical units within that scanline.
-func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fix32) {
-	// Break the 24.8 fixed point X co-ordinates into integral and fractional parts.
-	x0i := int(x0) / 256
-	x0f := x0 - Fix32(256*x0i)
-	x1i := int(x1) / 256
-	x1f := x1 - Fix32(256*x1i)
+func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f fixed.Int26_6) {
+	// Break the 26.6 fixed point X co-ordinates into integral and fractional parts.
+	x0i := int(x0) / 64
+	x0f := x0 - fixed.Int26_6(64*x0i)
+	x1i := int(x1) / 64
+	x1f := x1 - fixed.Int26_6(64*x1i)
 
 	// A perfectly horizontal scan.
 	if y0f == y1f {
@@ -137,17 +139,17 @@ func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fix32) {
 	}
 	// There are at least two cells. Apart from the first and last cells,
 	// all intermediate cells go through the full width of the cell,
-	// or 256 units in 24.8 fixed point format.
+	// or 64 units in 26.6 fixed point format.
 	var (
-		p, q, edge0, edge1 Fix32
+		p, q, edge0, edge1 fixed.Int26_6
 		xiDelta            int
 	)
 	if dx > 0 {
-		p, q = (256-x0f)*dy, dx
-		edge0, edge1, xiDelta = 0, 256, 1
+		p, q = (64-x0f)*dy, dx
+		edge0, edge1, xiDelta = 0, 64, 1
 	} else {
 		p, q = x0f*dy, -dx
-		edge0, edge1, xiDelta = 256, 0, -1
+		edge0, edge1, xiDelta = 64, 0, -1
 	}
 	yDelta, yRem := p/q, p%q
 	if yRem < 0 {
@@ -162,7 +164,7 @@ func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fix32) {
 	r.setCell(xi, yi)
 	if xi != x1i {
 		// Do all the intermediate cells.
-		p = 256 * (y1f - y + yDelta)
+		p = 64 * (y1f - y + yDelta)
 		fullDelta, fullRem := p/q, p%q
 		if fullRem < 0 {
 			fullDelta -= 1
@@ -176,7 +178,7 @@ func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fix32) {
 				yDelta += 1
 				yRem -= q
 			}
-			r.area += int(256 * yDelta)
+			r.area += int(64 * yDelta)
 			r.cover += int(yDelta)
 			xi, y = xi+xiDelta, y+yDelta
 			r.setCell(xi, yi)
@@ -189,21 +191,22 @@ func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f Fix32) {
 }
 
 // Start starts a new curve at the given point.
-func (r *Rasterizer) Start(a Point) {
-	r.setCell(int(a.X/256), int(a.Y/256))
+func (r *Rasterizer) Start(a fixed.Point26_6) {
+	r.setCell(int(a.X/64), int(a.Y/64))
 	r.a = a
 }
 
 // Add1 adds a linear segment to the current curve.
-func (r *Rasterizer) Add1(b Point) {
+func (r *Rasterizer) Add1(b fixed.Point26_6) {
 	x0, y0 := r.a.X, r.a.Y
 	x1, y1 := b.X, b.Y
 	dx, dy := x1-x0, y1-y0
-	// Break the 24.8 fixed point Y co-ordinates into integral and fractional parts.
-	y0i := int(y0) / 256
-	y0f := y0 - Fix32(256*y0i)
-	y1i := int(y1) / 256
-	y1f := y1 - Fix32(256*y1i)
+	// Break the 26.6 fixed point Y co-ordinates into integral and fractional
+	// parts.
+	y0i := int(y0) / 64
+	y0f := y0 - fixed.Int26_6(64*y0i)
+	y1i := int(y1) / 64
+	y1f := y1 - fixed.Int26_6(64*y1i)
 
 	if y0i == y1i {
 		// There is only one scanline.
@@ -213,16 +216,16 @@ func (r *Rasterizer) Add1(b Point) {
 		// This is a vertical line segment. We avoid calling r.scan and instead
 		// manipulate r.area and r.cover directly.
 		var (
-			edge0, edge1 Fix32
+			edge0, edge1 fixed.Int26_6
 			yiDelta      int
 		)
 		if dy > 0 {
-			edge0, edge1, yiDelta = 0, 256, 1
+			edge0, edge1, yiDelta = 0, 64, 1
 		} else {
-			edge0, edge1, yiDelta = 256, 0, -1
+			edge0, edge1, yiDelta = 64, 0, -1
 		}
-		x0i, yi := int(x0)/256, y0i
-		x0fTimes2 := (int(x0) - (256 * x0i)) * 2
+		x0i, yi := int(x0)/64, y0i
+		x0fTimes2 := (int(x0) - (64 * x0i)) * 2
 		// Do the first pixel.
 		dcover := int(edge1 - y0f)
 		darea := int(x0fTimes2 * dcover)
@@ -246,19 +249,19 @@ func (r *Rasterizer) Add1(b Point) {
 		r.cover += dcover
 
 	} else {
-		// There are at least two scanlines. Apart from the first and last scanlines,
-		// all intermediate scanlines go through the full height of the row, or 256
-		// units in 24.8 fixed point format.
+		// There are at least two scanlines. Apart from the first and last
+		// scanlines, all intermediate scanlines go through the full height of
+		// the row, or 64 units in 26.6 fixed point format.
 		var (
-			p, q, edge0, edge1 Fix32
+			p, q, edge0, edge1 fixed.Int26_6
 			yiDelta            int
 		)
 		if dy > 0 {
-			p, q = (256-y0f)*dx, dy
-			edge0, edge1, yiDelta = 0, 256, 1
+			p, q = (64-y0f)*dx, dy
+			edge0, edge1, yiDelta = 0, 64, 1
 		} else {
 			p, q = y0f*dx, -dy
-			edge0, edge1, yiDelta = 256, 0, -1
+			edge0, edge1, yiDelta = 64, 0, -1
 		}
 		xDelta, xRem := p/q, p%q
 		if xRem < 0 {
@@ -269,10 +272,10 @@ func (r *Rasterizer) Add1(b Point) {
 		x, yi := x0, y0i
 		r.scan(yi, x, y0f, x+xDelta, edge1)
 		x, yi = x+xDelta, yi+yiDelta
-		r.setCell(int(x)/256, yi)
+		r.setCell(int(x)/64, yi)
 		if yi != y1i {
 			// Do all the intermediate scanlines.
-			p = 256 * dx
+			p = 64 * dx
 			fullDelta, fullRem := p/q, p%q
 			if fullRem < 0 {
 				fullDelta -= 1
@@ -288,7 +291,7 @@ func (r *Rasterizer) Add1(b Point) {
 				}
 				r.scan(yi, x, edge0, x+xDelta, edge1)
 				x, yi = x+xDelta, yi+yiDelta
-				r.setCell(int(x)/256, yi)
+				r.setCell(int(x)/64, yi)
 			}
 		}
 		// Do the last scanline.
@@ -299,10 +302,11 @@ func (r *Rasterizer) Add1(b Point) {
 }
 
 // Add2 adds a quadratic segment to the current curve.
-func (r *Rasterizer) Add2(b, c Point) {
-	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
-	// Specifically, how much the middle point b deviates from (a+c)/2.
-	dev := maxAbs(r.a.X-2*b.X+c.X, r.a.Y-2*b.Y+c.Y) / Fix32(r.splitScale2)
+func (r *Rasterizer) Add2(b, c fixed.Point26_6) {
+	// Calculate nSplit (the number of recursive decompositions) based on how
+	// `curvy' it is. Specifically, how much the middle point b deviates from
+	// (a+c)/2.
+	dev := maxAbs(r.a.X-2*b.X+c.X, r.a.Y-2*b.Y+c.Y) / fixed.Int26_6(r.splitScale2)
 	nsplit := 0
 	for dev > 0 {
 		dev /= 4
@@ -315,7 +319,7 @@ func (r *Rasterizer) Add2(b, c Point) {
 	}
 	// Recursively decompose the curve nSplit levels deep.
 	var (
-		pStack [2*maxNsplit + 3]Point
+		pStack [2*maxNsplit + 3]fixed.Point26_6
 		sStack [maxNsplit + 1]int
 		i      int
 	)
@@ -347,7 +351,7 @@ func (r *Rasterizer) Add2(b, c Point) {
 			// Replace the level-0 quadratic with a two-linear-piece approximation.
 			midx := (p[0].X + 2*p[1].X + p[2].X) / 4
 			midy := (p[0].Y + 2*p[1].Y + p[2].Y) / 4
-			r.Add1(Point{midx, midy})
+			r.Add1(fixed.Point26_6{midx, midy})
 			r.Add1(p[0])
 			i--
 		}
@@ -355,10 +359,10 @@ func (r *Rasterizer) Add2(b, c Point) {
 }
 
 // Add3 adds a cubic segment to the current curve.
-func (r *Rasterizer) Add3(b, c, d Point) {
+func (r *Rasterizer) Add3(b, c, d fixed.Point26_6) {
 	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
-	dev2 := maxAbs(r.a.X-3*(b.X+c.X)+d.X, r.a.Y-3*(b.Y+c.Y)+d.Y) / Fix32(r.splitScale2)
-	dev3 := maxAbs(r.a.X-2*b.X+d.X, r.a.Y-2*b.Y+d.Y) / Fix32(r.splitScale3)
+	dev2 := maxAbs(r.a.X-3*(b.X+c.X)+d.X, r.a.Y-3*(b.Y+c.Y)+d.Y) / fixed.Int26_6(r.splitScale2)
+	dev3 := maxAbs(r.a.X-2*b.X+d.X, r.a.Y-2*b.Y+d.Y) / fixed.Int26_6(r.splitScale3)
 	nsplit := 0
 	for dev2 > 0 || dev3 > 0 {
 		dev2 /= 8
@@ -372,7 +376,7 @@ func (r *Rasterizer) Add3(b, c, d Point) {
 	}
 	// Recursively decompose the curve nSplit levels deep.
 	var (
-		pStack [3*maxNsplit + 4]Point
+		pStack [3*maxNsplit + 4]fixed.Point26_6
 		sStack [maxNsplit + 1]int
 		i      int
 	)
@@ -413,7 +417,7 @@ func (r *Rasterizer) Add3(b, c, d Point) {
 			// Replace the level-0 cubic with a two-linear-piece approximation.
 			midx := (p[0].X + 3*(p[1].X+p[2].X) + p[3].X) / 8
 			midy := (p[0].Y + 3*(p[1].Y+p[2].Y) + p[3].Y) / 8
-			r.Add1(Point{midx, midy})
+			r.Add1(fixed.Point26_6{midx, midy})
 			r.Add1(p[0])
 			i--
 		}
@@ -425,16 +429,27 @@ func (r *Rasterizer) AddPath(p Path) {
 	for i := 0; i < len(p); {
 		switch p[i] {
 		case 0:
-			r.Start(Point{p[i+1], p[i+2]})
+			r.Start(
+				fixed.Point26_6{p[i+1], p[i+2]},
+			)
 			i += 4
 		case 1:
-			r.Add1(Point{p[i+1], p[i+2]})
+			r.Add1(
+				fixed.Point26_6{p[i+1], p[i+2]},
+			)
 			i += 4
 		case 2:
-			r.Add2(Point{p[i+1], p[i+2]}, Point{p[i+3], p[i+4]})
+			r.Add2(
+				fixed.Point26_6{p[i+1], p[i+2]},
+				fixed.Point26_6{p[i+3], p[i+4]},
+			)
 			i += 6
 		case 3:
-			r.Add3(Point{p[i+1], p[i+2]}, Point{p[i+3], p[i+4]}, Point{p[i+5], p[i+6]})
+			r.Add3(
+				fixed.Point26_6{p[i+1], p[i+2]},
+				fixed.Point26_6{p[i+3], p[i+4]},
+				fixed.Point26_6{p[i+5], p[i+6]},
+			)
 			i += 8
 		default:
 			panic("freetype/raster: bad path")
@@ -443,43 +458,44 @@ func (r *Rasterizer) AddPath(p Path) {
 }
 
 // AddStroke adds a stroked Path.
-func (r *Rasterizer) AddStroke(q Path, width Fix32, cr Capper, jr Joiner) {
+func (r *Rasterizer) AddStroke(q Path, width fixed.Int26_6, cr Capper, jr Joiner) {
 	Stroke(r, q, width, cr, jr)
 }
 
-// Converts an area value to a uint32 alpha value. A completely filled pixel
-// corresponds to an area of 256*256*2, and an alpha of 1<<32-1. The
+// areaToAlpha converts an area value to a uint32 alpha value. A completely
+// filled pixel corresponds to an area of 64*64*2, and an alpha of 1<<32-1. The
 // conversion of area values greater than this depends on the winding rule:
 // even-odd or non-zero.
 func (r *Rasterizer) areaToAlpha(area int) uint32 {
-	// The C Freetype implementation (version 2.3.12) does "alpha := area>>1" without
-	// the +1. Round-to-nearest gives a more symmetric result than round-down.
-	// The C implementation also returns 8-bit alpha, not 32-bit alpha.
+	// The C Freetype implementation (version 2.3.12) does "alpha := area>>1"
+	// without the +1. Round-to-nearest gives a more symmetric result than
+	// round-down. The C implementation also returns 8-bit alpha, not 32-bit
+	// alpha.
 	a := (area + 1) >> 1
 	if a < 0 {
 		a = -a
 	}
 	alpha := uint32(a)
 	if r.UseNonZeroWinding {
-		if alpha > 0xffff {
-			alpha = 0xffff
+		if alpha > 0x0fff {
+			alpha = 0x0fff
 		}
 	} else {
-		alpha &= 0x1ffff
-		if alpha > 0x10000 {
-			alpha = 0x20000 - alpha
-		} else if alpha == 0x10000 {
-			alpha = 0x0ffff
+		alpha &= 0x1fff
+		if alpha > 0x1000 {
+			alpha = 0x2000 - alpha
+		} else if alpha == 0x1000 {
+			alpha = 0x0fff
 		}
 	}
-	alpha |= alpha << 16
-	return alpha
+	alpha >>= 4
+	return alpha * 0x01010101
 }
 
-// Rasterize converts r's accumulated curves into Spans for p. The Spans
-// passed to p are non-overlapping, and sorted by Y and then X. They all
-// have non-zero width (and 0 <= X0 < X1 <= r.width) and non-zero A, except
-// for the final Span, which has Y, X0, X1 and A all equal to zero.
+// Rasterize converts r's accumulated curves into Spans for p. The Spans passed
+// to p are non-overlapping, and sorted by Y and then X. They all have non-zero
+// width (and 0 <= X0 < X1 <= r.width) and non-zero A, except for the final
+// Span, which has Y, X0, X1 and A all equal to zero.
 func (r *Rasterizer) Rasterize(p Painter) {
 	r.saveCell()
 	s := 0
@@ -487,7 +503,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 		xi, cover := 0, 0
 		for c := r.cellIndex[yi]; c != -1; c = r.cell[c].next {
 			if cover != 0 && r.cell[c].xi > xi {
-				alpha := r.areaToAlpha(cover * 256 * 2)
+				alpha := r.areaToAlpha(cover * 64 * 2)
 				if alpha != 0 {
 					xi0, xi1 := xi, r.cell[c].xi
 					if xi0 < 0 {
@@ -503,7 +519,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 				}
 			}
 			cover += r.cell[c].cover
-			alpha := r.areaToAlpha(cover*256*2 - r.cell[c].area)
+			alpha := r.areaToAlpha(cover*64*2 - r.cell[c].area)
 			xi = r.cell[c].xi + 1
 			if alpha != 0 {
 				xi0, xi1 := r.cell[c].xi, xi
@@ -529,7 +545,7 @@ func (r *Rasterizer) Rasterize(p Painter) {
 
 // Clear cancels any previous calls to r.Start or r.AddXxx.
 func (r *Rasterizer) Clear() {
-	r.a = Point{}
+	r.a = fixed.Point26_6{}
 	r.xi = 0
 	r.yi = 0
 	r.area = 0
@@ -541,7 +557,7 @@ func (r *Rasterizer) Clear() {
 }
 
 // SetBounds sets the maximum width and height of the rasterized image and
-// calls Clear. The width and height are in pixels, not Fix32 units.
+// calls Clear. The width and height are in pixels, not fixed.Int26_6 units.
 func (r *Rasterizer) SetBounds(width, height int) {
 	if width < 0 {
 		width = 0
@@ -549,10 +565,9 @@ func (r *Rasterizer) SetBounds(width, height int) {
 	if height < 0 {
 		height = 0
 	}
-	// Use the same ssN heuristic as the C Freetype implementation.
-	// The C implementation uses the values 32, 16, but those are in
-	// 26.6 fixed point units, and we use 24.8 fixed point everywhere.
-	ss2, ss3 := 128, 64
+	// Use the same ssN heuristic as the C Freetype (version 2.4.0)
+	// implementation.
+	ss2, ss3 := 32, 16
 	if width > 24 || height > 24 {
 		ss2, ss3 = 2*ss2, 2*ss3
 		if width > 120 || height > 120 {

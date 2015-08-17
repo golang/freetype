@@ -5,21 +5,25 @@
 
 package raster
 
+import (
+	"golang.org/x/image/math/fixed"
+)
+
 // Two points are considered practically equal if the square of the distance
-// between them is less than one quarter (i.e. 16384 / 65536 in Fix64).
-const epsilon = 16384
+// between them is less than one quarter (i.e. 1024 / 4096).
+const epsilon = fixed.Int52_12(1024)
 
 // A Capper signifies how to begin or end a stroked path.
 type Capper interface {
 	// Cap adds a cap to p given a pivot point and the normal vector of a
 	// terminal segment. The normal's length is half of the stroke width.
-	Cap(p Adder, halfWidth Fix32, pivot, n1 Point)
+	Cap(p Adder, halfWidth fixed.Int26_6, pivot, n1 fixed.Point26_6)
 }
 
 // The CapperFunc type adapts an ordinary function to be a Capper.
-type CapperFunc func(Adder, Fix32, Point, Point)
+type CapperFunc func(Adder, fixed.Int26_6, fixed.Point26_6, fixed.Point26_6)
 
-func (f CapperFunc) Cap(p Adder, halfWidth Fix32, pivot, n1 Point) {
+func (f CapperFunc) Cap(p Adder, halfWidth fixed.Int26_6, pivot, n1 fixed.Point26_6) {
 	f(p, halfWidth, pivot, n1)
 }
 
@@ -28,20 +32,20 @@ type Joiner interface {
 	// Join adds a join to the two sides of a stroked path given a pivot
 	// point and the normal vectors of the trailing and leading segments.
 	// Both normals have length equal to half of the stroke width.
-	Join(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point)
+	Join(lhs, rhs Adder, halfWidth fixed.Int26_6, pivot, n0, n1 fixed.Point26_6)
 }
 
 // The JoinerFunc type adapts an ordinary function to be a Joiner.
-type JoinerFunc func(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point)
+type JoinerFunc func(lhs, rhs Adder, halfWidth fixed.Int26_6, pivot, n0, n1 fixed.Point26_6)
 
-func (f JoinerFunc) Join(lhs, rhs Adder, halfWidth Fix32, pivot, n0, n1 Point) {
+func (f JoinerFunc) Join(lhs, rhs Adder, halfWidth fixed.Int26_6, pivot, n0, n1 fixed.Point26_6) {
 	f(lhs, rhs, halfWidth, pivot, n0, n1)
 }
 
 // RoundCapper adds round caps to a stroked path.
 var RoundCapper Capper = CapperFunc(roundCapper)
 
-func roundCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
+func roundCapper(p Adder, halfWidth fixed.Int26_6, pivot, n1 fixed.Point26_6) {
 	// The cubic Bézier approximation to a circle involves the magic number
 	// (√2 - 1) * 4/3, which is approximately 141/256.
 	const k = 141
@@ -56,14 +60,14 @@ func roundCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
 // ButtCapper adds butt caps to a stroked path.
 var ButtCapper Capper = CapperFunc(buttCapper)
 
-func buttCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
+func buttCapper(p Adder, halfWidth fixed.Int26_6, pivot, n1 fixed.Point26_6) {
 	p.Add1(pivot.Add(n1))
 }
 
 // SquareCapper adds square caps to a stroked path.
 var SquareCapper Capper = CapperFunc(squareCapper)
 
-func squareCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
+func squareCapper(p Adder, halfWidth fixed.Int26_6, pivot, n1 fixed.Point26_6) {
 	e := pRot90CCW(n1)
 	side := pivot.Add(e)
 	p.Add1(side.Sub(n1))
@@ -74,7 +78,7 @@ func squareCapper(p Adder, halfWidth Fix32, pivot, n1 Point) {
 // RoundJoiner adds round joins to a stroked path.
 var RoundJoiner Joiner = JoinerFunc(roundJoiner)
 
-func roundJoiner(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
+func roundJoiner(lhs, rhs Adder, haflWidth fixed.Int26_6, pivot, n0, n1 fixed.Point26_6) {
 	dot := pDot(pRot90CW(n0), n1)
 	if dot >= 0 {
 		addArc(lhs, pivot, n0, n1)
@@ -88,7 +92,7 @@ func roundJoiner(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
 // BevelJoiner adds bevel joins to a stroked path.
 var BevelJoiner Joiner = JoinerFunc(bevelJoiner)
 
-func bevelJoiner(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
+func bevelJoiner(lhs, rhs Adder, haflWidth fixed.Int26_6, pivot, n0, n1 fixed.Point26_6) {
 	lhs.Add1(pivot.Add(n1))
 	rhs.Add1(pivot.Sub(n1))
 }
@@ -96,7 +100,7 @@ func bevelJoiner(lhs, rhs Adder, haflWidth Fix32, pivot, n0, n1 Point) {
 // addArc adds a circular arc from pivot+n0 to pivot+n1 to p. The shorter of
 // the two possible arcs is taken, i.e. the one spanning <= 180 degrees. The
 // two vectors n0 and n1 must be of equal length.
-func addArc(p Adder, pivot, n0, n1 Point) {
+func addArc(p Adder, pivot, n0, n1 fixed.Point26_6) {
 	// r2 is the square of the length of n0.
 	r2 := pDot(n0, n0)
 	if r2 < epsilon {
@@ -109,7 +113,7 @@ func addArc(p Adder, pivot, n0, n1 Point) {
 	// control points {1, 0}, {1, tan(π/8)} and {1/√2, 1/√2} suitably scaled,
 	// rotated and translated. tan(π/8) is approximately 106/256.
 	const tpo8 = 106
-	var s Point
+	var s fixed.Point26_6
 	// We determine which octant the angle between n0 and n1 is in via three
 	// dot products. m0, m1 and m2 are n0 rotated clockwise by 45, 90 and 135
 	// degrees.
@@ -178,28 +182,28 @@ func addArc(p Adder, pivot, n0, n1 Point) {
 	// d is the normalized dot product between s and n1. Since the angle ranges
 	// between 0 and 45 degrees then d ranges between 256/256 and 181/256.
 	d := 256 * pDot(s, n1) / r2
-	multiple := Fix32(150 - 22*(d-181)/(256-181))
+	multiple := fixed.Int26_6(150-(150-128)*(d-181)/(256-181)) >> 2
 	p.Add2(pivot.Add(s.Add(n1).Mul(multiple)), pivot.Add(n1))
 }
 
 // midpoint returns the midpoint of two Points.
-func midpoint(a, b Point) Point {
-	return Point{(a.X + b.X) / 2, (a.Y + b.Y) / 2}
+func midpoint(a, b fixed.Point26_6) fixed.Point26_6 {
+	return fixed.Point26_6{(a.X + b.X) / 2, (a.Y + b.Y) / 2}
 }
 
 // angleGreaterThan45 returns whether the angle between two vectors is more
 // than 45 degrees.
-func angleGreaterThan45(v0, v1 Point) bool {
+func angleGreaterThan45(v0, v1 fixed.Point26_6) bool {
 	v := pRot45CCW(v0)
 	return pDot(v, v1) < 0 || pDot(pRot90CW(v), v1) < 0
 }
 
 // interpolate returns the point (1-t)*a + t*b.
-func interpolate(a, b Point, t Fix64) Point {
-	s := 1<<16 - t
-	x := s*Fix64(a.X) + t*Fix64(b.X)
-	y := s*Fix64(a.Y) + t*Fix64(b.Y)
-	return Point{Fix32(x >> 16), Fix32(y >> 16)}
+func interpolate(a, b fixed.Point26_6, t fixed.Int52_12) fixed.Point26_6 {
+	s := 1<<12 - t
+	x := s*fixed.Int52_12(a.X) + t*fixed.Int52_12(b.X)
+	y := s*fixed.Int52_12(a.Y) + t*fixed.Int52_12(b.Y)
+	return fixed.Point26_6{fixed.Int26_6(x >> 12), fixed.Int26_6(y >> 12)}
 }
 
 // curviest2 returns the value of t for which the quadratic parametric curve
@@ -216,15 +220,15 @@ func interpolate(a, b Point, t Fix64) Point {
 // (x′²+y′²) is extreme. The first order condition is that
 // 2*x′*x″+2*y′*y″ = 0, or (dx+ex*t)*ex + (dy+ey*t)*ey = 0.
 // Solving for t gives t = -(dx*ex+dy*ey) / (ex*ex+ey*ey).
-func curviest2(a, b, c Point) Fix64 {
+func curviest2(a, b, c fixed.Point26_6) fixed.Int52_12 {
 	dx := int64(b.X - a.X)
 	dy := int64(b.Y - a.Y)
 	ex := int64(c.X - 2*b.X + a.X)
 	ey := int64(c.Y - 2*b.Y + a.Y)
 	if ex == 0 && ey == 0 {
-		return 32768
+		return 2048
 	}
-	return Fix64(-65536 * (dx*ex + dy*ey) / (ex*ex + ey*ey))
+	return fixed.Int52_12(-4096 * (dx*ex + dy*ey) / (ex*ex + ey*ey))
 }
 
 // A stroker holds state for stroking a path.
@@ -232,7 +236,7 @@ type stroker struct {
 	// p is the destination that records the stroked path.
 	p Adder
 	// u is the half-width of the stroke.
-	u Fix32
+	u fixed.Int26_6
 	// cr and jr specify how to end and connect path segments.
 	cr Capper
 	jr Joiner
@@ -242,19 +246,19 @@ type stroker struct {
 	r Path
 	// a is the most recent segment point. anorm is the segment normal of
 	// length u at that point.
-	a, anorm Point
+	a, anorm fixed.Point26_6
 }
 
 // addNonCurvy2 adds a quadratic segment to the stroker, where the segment
 // defined by (k.a, b, c) achieves maximum curvature at either k.a or c.
-func (k *stroker) addNonCurvy2(b, c Point) {
+func (k *stroker) addNonCurvy2(b, c fixed.Point26_6) {
 	// We repeatedly divide the segment at its middle until it is straight
 	// enough to approximate the stroke by just translating the control points.
 	// ds and ps are stacks of depths and points. t is the top of the stack.
 	const maxDepth = 5
 	var (
 		ds [maxDepth + 1]int
-		ps [2*maxDepth + 3]Point
+		ps [2*maxDepth + 3]fixed.Point26_6
 		t  int
 	)
 	// Initially the ps stack has one quadratic segment of depth zero.
@@ -263,7 +267,7 @@ func (k *stroker) addNonCurvy2(b, c Point) {
 	ps[1] = b
 	ps[0] = c
 	anorm := k.anorm
-	var cnorm Point
+	var cnorm fixed.Point26_6
 
 	for {
 		depth := ds[t]
@@ -272,8 +276,8 @@ func (k *stroker) addNonCurvy2(b, c Point) {
 		c := ps[2*t+0]
 		ab := b.Sub(a)
 		bc := c.Sub(b)
-		abIsSmall := pDot(ab, ab) < Fix64(1<<16)
-		bcIsSmall := pDot(bc, bc) < Fix64(1<<16)
+		abIsSmall := pDot(ab, ab) < fixed.Int52_12(1<<12)
+		bcIsSmall := pDot(bc, bc) < fixed.Int52_12(1<<12)
 		if abIsSmall && bcIsSmall {
 			// Approximate the segment by a circular arc.
 			cnorm = pRot90CCW(pNorm(bc, k.u))
@@ -310,7 +314,7 @@ func (k *stroker) addNonCurvy2(b, c Point) {
 }
 
 // Add1 adds a linear segment to the stroker.
-func (k *stroker) Add1(b Point) {
+func (k *stroker) Add1(b fixed.Point26_6) {
 	bnorm := pRot90CCW(pNorm(b.Sub(k.a), k.u))
 	if len(k.r) == 0 {
 		k.p.Start(k.a.Add(bnorm))
@@ -324,7 +328,7 @@ func (k *stroker) Add1(b Point) {
 }
 
 // Add2 adds a quadratic segment to the stroker.
-func (k *stroker) Add2(b, c Point) {
+func (k *stroker) Add2(b, c fixed.Point26_6) {
 	ab := b.Sub(k.a)
 	bc := c.Sub(b)
 	abnorm := pRot90CCW(pNorm(ab, k.u))
@@ -349,7 +353,7 @@ func (k *stroker) Add2(b, c Point) {
 	// The quadratic segment (k.a, b, c) has a point of maximum curvature.
 	// If this occurs at an end point, we process the segment as a whole.
 	t := curviest2(k.a, b, c)
-	if t <= 0 || 65536 <= t {
+	if t <= 0 || 4096 <= t {
 		k.addNonCurvy2(b, c)
 		return
 	}
@@ -364,7 +368,7 @@ func (k *stroker) Add2(b, c Point) {
 	// then the decomposition can become unstable, so we approximate the
 	// quadratic segment by two linear segments joined by an arc.
 	bcnorm := pRot90CCW(pNorm(bc, k.u))
-	if pDot(abnorm, bcnorm) < -Fix64(k.u)*Fix64(k.u)*2047/2048 {
+	if pDot(abnorm, bcnorm) < -fixed.Int52_12(k.u)*fixed.Int52_12(k.u)*2047/2048 {
 		pArc := pDot(abnorm, bc) < 0
 
 		k.p.Add1(mabc.Add(abnorm))
@@ -395,7 +399,7 @@ func (k *stroker) Add2(b, c Point) {
 }
 
 // Add3 adds a cubic segment to the stroker.
-func (k *stroker) Add3(b, c, d Point) {
+func (k *stroker) Add3(b, c, d fixed.Point26_6) {
 	panic("freetype/raster: stroke unimplemented for cubic segments")
 }
 
@@ -406,17 +410,26 @@ func (k *stroker) stroke(q Path) {
 	// path is accumulated in k.r. Once we've finished adding the LHS to k.p,
 	// we add the RHS in reverse order.
 	k.r = make(Path, 0, len(q))
-	k.a = Point{q[1], q[2]}
+	k.a = fixed.Point26_6{q[1], q[2]}
 	for i := 4; i < len(q); {
 		switch q[i] {
 		case 1:
-			k.Add1(Point{q[i+1], q[i+2]})
+			k.Add1(
+				fixed.Point26_6{q[i+1], q[i+2]},
+			)
 			i += 4
 		case 2:
-			k.Add2(Point{q[i+1], q[i+2]}, Point{q[i+3], q[i+4]})
+			k.Add2(
+				fixed.Point26_6{q[i+1], q[i+2]},
+				fixed.Point26_6{q[i+3], q[i+4]},
+			)
 			i += 6
 		case 3:
-			k.Add3(Point{q[i+1], q[i+2]}, Point{q[i+3], q[i+4]}, Point{q[i+5], q[i+6]})
+			k.Add3(
+				fixed.Point26_6{q[i+1], q[i+2]},
+				fixed.Point26_6{q[i+3], q[i+4]},
+				fixed.Point26_6{q[i+5], q[i+6]},
+			)
 			i += 8
 		default:
 			panic("freetype/raster: bad path")
@@ -430,13 +443,13 @@ func (k *stroker) stroke(q Path) {
 	k.cr.Cap(k.p, k.u, q.lastPoint(), pNeg(k.anorm))
 	addPathReversed(k.p, k.r)
 	pivot := q.firstPoint()
-	k.cr.Cap(k.p, k.u, pivot, pivot.Sub(Point{k.r[1], k.r[2]}))
+	k.cr.Cap(k.p, k.u, pivot, pivot.Sub(fixed.Point26_6{k.r[1], k.r[2]}))
 }
 
 // Stroke adds q stroked with the given width to p. The result is typically
 // self-intersecting and should be rasterized with UseNonZeroWinding.
 // cr and jr may be nil, which defaults to a RoundCapper or RoundJoiner.
-func Stroke(p Adder, q Path, width Fix32, cr Capper, jr Joiner) {
+func Stroke(p Adder, q Path, width fixed.Int26_6, cr Capper, jr Joiner) {
 	if len(q) == 0 {
 		return
 	}

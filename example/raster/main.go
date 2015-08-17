@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/golang/freetype/raster"
+	"golang.org/x/image/math/fixed"
 )
 
 type node struct {
@@ -87,11 +88,11 @@ var inside = []node{
 	node{686, 1274, -1},
 }
 
-func p(n node) raster.Point {
+func p(n node) fixed.Point26_6 {
 	x, y := 20+n.x/4, 380-n.y/4
-	return raster.Point{
-		X: raster.Fix32(x * 256),
-		Y: raster.Fix32(y * 256),
+	return fixed.Point26_6{
+		X: fixed.Int26_6(x << 6),
+		Y: fixed.Int26_6(y << 6),
 	}
 }
 
@@ -121,7 +122,7 @@ func contour(r *raster.Rasterizer, ns []node) {
 func showNodes(m *image.RGBA, ns []node) {
 	for _, n := range ns {
 		p := p(n)
-		x, y := int(p.X)/256, int(p.Y)/256
+		x, y := int(p.X)/64, int(p.Y)/64
 		if !(image.Point{x, y}).In(m.Bounds()) {
 			continue
 		}
