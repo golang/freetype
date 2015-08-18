@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/image/math/fixed"
 )
 
 func TestBytecode(t *testing.T) {
@@ -589,7 +591,7 @@ func TestMove(t *testing.T) {
 	h, p := hinter{}, Point{}
 	testCases := []struct {
 		pvX, pvY, fvX, fvY f2dot14
-		wantX, wantY       int32
+		wantX, wantY       fixed.Int26_6
 	}{
 		{+0x4000, +0x0000, +0x4000, +0x0000, +1000, +0},
 		{+0x4000, +0x0000, -0x4000, +0x0000, +1000, +0},

@@ -5,8 +5,12 @@
 
 package truetype
 
+import (
+	"golang.org/x/image/math/fixed"
+)
+
 // Hinting is the policy for snapping a glyph's contours to pixel boundaries.
-type Hinting int32
+type Hinting uint32
 
 const (
 	// NoHinting means to not perform any hinting.
@@ -20,7 +24,7 @@ const (
 // A Point is a co-ordinate pair plus whether it is ``on'' a contour or an
 // ``off'' control point.
 type Point struct {
-	X, Y int32
+	X, Y fixed.Int26_6
 	// The Flags' LSB means whether or not this Point is ``on'' the contour.
 	// Other bits are reserved for internal use.
 	Flags uint32
@@ -30,7 +34,7 @@ type Point struct {
 // series of glyphs from a Font.
 type GlyphBuf struct {
 	// AdvanceWidth is the glyph's advance width.
-	AdvanceWidth int32
+	AdvanceWidth fixed.Int26_6
 	// B is the glyph's bounding box.
 	B Bounds
 	// Point contains all Points from all contours of the glyph. If
@@ -45,7 +49,7 @@ type GlyphBuf struct {
 	End []int
 
 	font    *Font
-	scale   int32
+	scale   fixed.Int26_6
 	hinting Hinting
 	hinter  hinter
 	// phantomPoints are the co-ordinates of the synthetic phantom points
@@ -54,7 +58,7 @@ type GlyphBuf struct {
 	// pp1x is the X co-ordinate of the first phantom point. The '1' is
 	// using 1-based indexing; pp1x is almost always phantomPoints[0].X.
 	// TODO: eliminate this and consistently use phantomPoints[0].X.
-	pp1x int32
+	pp1x fixed.Int26_6
 	// metricsSet is whether the glyph's metrics have been set yet. For a
 	// compound glyph, a sub-glyph may override the outer glyph's metrics.
 	metricsSet bool
@@ -84,10 +88,10 @@ const (
 	flagThisYIsSame = flagPositiveYShortVector
 )
 
-// Load loads a glyph's contours from a Font, overwriting any previously
-// loaded contours for this GlyphBuf. scale is the number of 26.6 fixed point
-// units in 1 em, i is the glyph index, and h is the hinting policy.
-func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h Hinting) error {
+// Load loads a glyph's contours from a Font, overwriting any previously loaded
+// contours for this GlyphBuf. scale is the number of 26.6 fixed point units in
+// 1 em, i is the glyph index, and h is the hinting policy.
+func (g *GlyphBuf) Load(f *Font, scale fixed.Int26_6, i Index, h Hinting) error {
 	g.Point = g.Point[:0]
 	g.Unhinted = g.Unhinted[:0]
 	g.InFontUnits = g.InFontUnits[:0]
@@ -125,8 +129,8 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h Hinting) error {
 		if len(f.hdmx) >= 8 {
 			if n := u32(f.hdmx, 4); n > 3+uint32(i) {
 				for hdmx := f.hdmx[8:]; uint32(len(hdmx)) >= n; hdmx = hdmx[n:] {
-					if int32(hdmx[0]) == scale>>6 {
-						advanceWidth = int32(hdmx[2+i]) << 6
+					if fixed.Int26_6(hdmx[0]) == scale>>6 {
+						advanceWidth = fixed.Int26_6(hdmx[2+i]) << 6
 						break
 					}
 				}
@@ -175,7 +179,7 @@ func (g *GlyphBuf) Load(f *Font, scale int32, i Index, h Hinting) error {
 	return nil
 }
 
-func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error) {
+func (g *GlyphBuf) load(recursion uint32, i Index, useMyMetrics bool) (err error) {
 	// The recursion limit here is arbitrary, but defends against malformed glyphs.
 	if recursion >= 32 {
 		return UnsupportedError("excessive compound glyph recursion")
@@ -193,16 +197,16 @@ func (g *GlyphBuf) load(recursion int32, i Index, useMyMetrics bool) (err error)
 	// Decode the contour count and nominal bounding box, from the first
 	// 10 bytes of the glyf data. boundsYMin and boundsXMax, at offsets 4
 	// and 6, are unused.
-	glyf, ne, boundsXMin, boundsYMax := []byte(nil), 0, int32(0), int32(0)
+	glyf, ne, boundsXMin, boundsYMax := []byte(nil), 0, fixed.Int26_6(0), fixed.Int26_6(0)
 	if g0+10 <= g1 {
 		glyf = g.font.glyf[g0:g1]
 		ne = int(int16(u16(glyf, 0)))
-		boundsXMin = int32(int16(u16(glyf, 2)))
-		boundsYMax = int32(int16(u16(glyf, 8)))
+		boundsXMin = fixed.Int26_6(int16(u16(glyf, 2)))
+		boundsYMax = fixed.Int26_6(int16(u16(glyf, 8)))
 	}
 
 	// Create the phantom points.
-	uhm, pp1x := g.font.unscaledHMetric(i), int32(0)
+	uhm, pp1x := g.font.unscaledHMetric(i), fixed.Int26_6(0)
 	uvm := g.font.unscaledVMetric(i, boundsYMax)
 	g.phantomPoints = [4]Point{
 		{X: boundsXMin - uhm.LeftSideBearing},
@@ -322,7 +326,7 @@ func (g *GlyphBuf) loadSimple(glyf []byte, ne int) (program []byte) {
 			x += int16(u16(glyf, offset))
 			offset += 2
 		}
-		g.Point[i].X = int32(x)
+		g.Point[i].X = fixed.Int26_6(x)
 	}
 	var y int16
 	for i := np0; i < np1; i++ {
@@ -339,13 +343,13 @@ func (g *GlyphBuf) loadSimple(glyf []byte, ne int) (program []byte) {
 			y += int16(u16(glyf, offset))
 			offset += 2
 		}
-		g.Point[i].Y = int32(y)
+		g.Point[i].Y = fixed.Int26_6(y)
 	}
 
 	return program
 }
 
-func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
+func (g *GlyphBuf) loadCompound(recursion uint32, uhm HMetric, i Index,
 	glyf []byte, useMyMetrics bool) error {
 
 	// Flags for decoding a compound glyph. These flags are documented at
@@ -368,14 +372,14 @@ func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 	for {
 		flags := u16(glyf, offset)
 		component := Index(u16(glyf, offset+2))
-		dx, dy, transform, hasTransform := int32(0), int32(0), [4]int32{}, false
+		dx, dy, transform, hasTransform := fixed.Int26_6(0), fixed.Int26_6(0), [4]int16{}, false
 		if flags&flagArg1And2AreWords != 0 {
-			dx = int32(int16(u16(glyf, offset+4)))
-			dy = int32(int16(u16(glyf, offset+6)))
+			dx = fixed.Int26_6(int16(u16(glyf, offset+4)))
+			dy = fixed.Int26_6(int16(u16(glyf, offset+6)))
 			offset += 8
 		} else {
-			dx = int32(int16(int8(glyf[offset+4])))
-			dy = int32(int16(int8(glyf[offset+5])))
+			dx = fixed.Int26_6(int16(int8(glyf[offset+4])))
+			dy = fixed.Int26_6(int16(int8(glyf[offset+5])))
 			offset += 6
 		}
 		if flags&flagArgsAreXYValues == 0 {
@@ -385,18 +389,18 @@ func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 			hasTransform = true
 			switch {
 			case flags&flagWeHaveAScale != 0:
-				transform[0] = int32(int16(u16(glyf, offset+0)))
+				transform[0] = int16(u16(glyf, offset+0))
 				transform[3] = transform[0]
 				offset += 2
 			case flags&flagWeHaveAnXAndYScale != 0:
-				transform[0] = int32(int16(u16(glyf, offset+0)))
-				transform[3] = int32(int16(u16(glyf, offset+2)))
+				transform[0] = int16(u16(glyf, offset+0))
+				transform[3] = int16(u16(glyf, offset+2))
 				offset += 4
 			case flags&flagWeHaveATwoByTwo != 0:
-				transform[0] = int32(int16(u16(glyf, offset+0)))
-				transform[1] = int32(int16(u16(glyf, offset+2)))
-				transform[2] = int32(int16(u16(glyf, offset+4)))
-				transform[3] = int32(int16(u16(glyf, offset+6)))
+				transform[0] = int16(u16(glyf, offset+0))
+				transform[1] = int16(u16(glyf, offset+2))
+				transform[2] = int16(u16(glyf, offset+4))
+				transform[3] = int16(u16(glyf, offset+6))
 				offset += 8
 			}
 		}
@@ -412,10 +416,12 @@ func (g *GlyphBuf) loadCompound(recursion int32, uhm HMetric, i Index,
 		if hasTransform {
 			for j := np0; j < len(g.Point); j++ {
 				p := &g.Point[j]
-				newX := int32((int64(p.X)*int64(transform[0])+1<<13)>>14) +
-					int32((int64(p.Y)*int64(transform[2])+1<<13)>>14)
-				newY := int32((int64(p.X)*int64(transform[1])+1<<13)>>14) +
-					int32((int64(p.Y)*int64(transform[3])+1<<13)>>14)
+				newX := 0 +
+					fixed.Int26_6((int64(p.X)*int64(transform[0])+1<<13)>>14) +
+					fixed.Int26_6((int64(p.Y)*int64(transform[2])+1<<13)>>14)
+				newY := 0 +
+					fixed.Int26_6((int64(p.X)*int64(transform[1])+1<<13)>>14) +
+					fixed.Int26_6((int64(p.Y)*int64(transform[3])+1<<13)>>14)
 				p.X, p.Y = newX, newY
 			}
 		}

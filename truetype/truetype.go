@@ -9,10 +9,9 @@
 //
 // Some of a font's methods provide lengths or co-ordinates, e.g. bounds, font
 // metrics and control points. All these methods take a scale parameter, which
-// is the number of device units in 1 em. For example, if 1 em is 10 pixels and
-// 1 pixel is 64 units, then scale is 640. If the device space involves pixels,
-// 64 units per pixel is recommended, since that is what the bytecode hinter
-// uses when snapping point co-ordinates to the pixel grid.
+// is the number of pixels in 1 em, expressed as a 26.6 fixed point value. For
+// example, if 1 em is 10 pixels then scale is fixed.I(10), which is equal to
+// fixed.Int26_6(10 << 6).
 //
 // To measure a TrueType font in ideal FUnit space, use scale equal to
 // font.FUnitsPerEm().
@@ -20,6 +19,8 @@ package truetype // import "github.com/golang/freetype/truetype"
 
 import (
 	"fmt"
+
+	"golang.org/x/image/math/fixed"
 )
 
 // An Index is a Font's index of a rune.
@@ -28,17 +29,17 @@ type Index uint16
 // A Bounds holds the co-ordinate range of one or more glyphs.
 // The endpoints are inclusive.
 type Bounds struct {
-	XMin, YMin, XMax, YMax int32
+	XMin, YMin, XMax, YMax fixed.Int26_6
 }
 
 // An HMetric holds the horizontal metrics of a single glyph.
 type HMetric struct {
-	AdvanceWidth, LeftSideBearing int32
+	AdvanceWidth, LeftSideBearing fixed.Int26_6
 }
 
 // A VMetric holds the vertical metrics of a single glyph.
 type VMetric struct {
-	AdvanceHeight, TopSideBearing int32
+	AdvanceHeight, TopSideBearing fixed.Int26_6
 }
 
 // A FormatError reports that the input is not a valid TrueType font.
@@ -226,10 +227,10 @@ func (f *Font) parseHead() error {
 		return FormatError(fmt.Sprintf("bad head length: %d", len(f.head)))
 	}
 	f.fUnitsPerEm = int32(u16(f.head, 18))
-	f.bounds.XMin = int32(int16(u16(f.head, 36)))
-	f.bounds.YMin = int32(int16(u16(f.head, 38)))
-	f.bounds.XMax = int32(int16(u16(f.head, 40)))
-	f.bounds.YMax = int32(int16(u16(f.head, 42)))
+	f.bounds.XMin = fixed.Int26_6(int16(u16(f.head, 36)))
+	f.bounds.YMin = fixed.Int26_6(int16(u16(f.head, 38)))
+	f.bounds.XMax = fixed.Int26_6(int16(u16(f.head, 40)))
+	f.bounds.YMax = fixed.Int26_6(int16(u16(f.head, 42)))
 	switch i := u16(f.head, 50); i {
 	case 0:
 		f.locaOffsetFormat = locaOffsetFormatShort
@@ -306,17 +307,17 @@ func (f *Font) parseMaxp() error {
 }
 
 // scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
-func (f *Font) scale(x int32) int32 {
+func (f *Font) scale(x fixed.Int26_6) fixed.Int26_6 {
 	if x >= 0 {
-		x += f.fUnitsPerEm / 2
+		x += fixed.Int26_6(f.fUnitsPerEm) / 2
 	} else {
-		x -= f.fUnitsPerEm / 2
+		x -= fixed.Int26_6(f.fUnitsPerEm) / 2
 	}
-	return x / f.fUnitsPerEm
+	return x / fixed.Int26_6(f.fUnitsPerEm)
 }
 
 // Bounds returns the union of a Font's glyphs' bounds.
-func (f *Font) Bounds(scale int32) Bounds {
+func (f *Font) Bounds(scale fixed.Int26_6) Bounds {
 	b := f.bounds
 	b.XMin = f.scale(scale * b.XMin)
 	b.YMin = f.scale(scale * b.YMin)
@@ -360,18 +361,18 @@ func (f *Font) unscaledHMetric(i Index) (h HMetric) {
 	if j >= f.nHMetric {
 		p := 4 * (f.nHMetric - 1)
 		return HMetric{
-			AdvanceWidth:    int32(u16(f.hmtx, p)),
-			LeftSideBearing: int32(int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4))),
+			AdvanceWidth:    fixed.Int26_6(u16(f.hmtx, p)),
+			LeftSideBearing: fixed.Int26_6(int16(u16(f.hmtx, p+2*(j-f.nHMetric)+4))),
 		}
 	}
 	return HMetric{
-		AdvanceWidth:    int32(u16(f.hmtx, 4*j)),
-		LeftSideBearing: int32(int16(u16(f.hmtx, 4*j+2))),
+		AdvanceWidth:    fixed.Int26_6(u16(f.hmtx, 4*j)),
+		LeftSideBearing: fixed.Int26_6(int16(u16(f.hmtx, 4*j+2))),
 	}
 }
 
 // HMetric returns the horizontal metrics for the glyph with the given index.
-func (f *Font) HMetric(scale int32, i Index) HMetric {
+func (f *Font) HMetric(scale fixed.Int26_6, i Index) HMetric {
 	h := f.unscaledHMetric(i)
 	h.AdvanceWidth = f.scale(scale * h.AdvanceWidth)
 	h.LeftSideBearing = f.scale(scale * h.LeftSideBearing)
@@ -380,15 +381,15 @@ func (f *Font) HMetric(scale int32, i Index) HMetric {
 
 // unscaledVMetric returns the unscaled vertical metrics for the glyph with
 // the given index. yMax is the top of the glyph's bounding box.
-func (f *Font) unscaledVMetric(i Index, yMax int32) (v VMetric) {
+func (f *Font) unscaledVMetric(i Index, yMax fixed.Int26_6) (v VMetric) {
 	j := int(i)
 	if j < 0 || f.nGlyph <= j {
 		return VMetric{}
 	}
 	if 4*j+4 <= len(f.vmtx) {
 		return VMetric{
-			AdvanceHeight:  int32(u16(f.vmtx, 4*j)),
-			TopSideBearing: int32(int16(u16(f.vmtx, 4*j+2))),
+			AdvanceHeight:  fixed.Int26_6(u16(f.vmtx, 4*j)),
+			TopSideBearing: fixed.Int26_6(int16(u16(f.vmtx, 4*j+2))),
 		}
 	}
 	// The OS/2 table has grown over time.
@@ -397,21 +398,21 @@ func (f *Font) unscaledVMetric(i Index, yMax int32) (v VMetric) {
 	// the ascender and descender, are described at
 	// http://www.microsoft.com/typography/otspec/os2.htm
 	if len(f.os2) >= 72 {
-		sTypoAscender := int32(int16(u16(f.os2, 68)))
-		sTypoDescender := int32(int16(u16(f.os2, 70)))
+		sTypoAscender := fixed.Int26_6(int16(u16(f.os2, 68)))
+		sTypoDescender := fixed.Int26_6(int16(u16(f.os2, 70)))
 		return VMetric{
 			AdvanceHeight:  sTypoAscender - sTypoDescender,
 			TopSideBearing: sTypoAscender - yMax,
 		}
 	}
 	return VMetric{
-		AdvanceHeight:  f.fUnitsPerEm,
+		AdvanceHeight:  fixed.Int26_6(f.fUnitsPerEm),
 		TopSideBearing: 0,
 	}
 }
 
 // VMetric returns the vertical metrics for the glyph with the given index.
-func (f *Font) VMetric(scale int32, i Index) VMetric {
+func (f *Font) VMetric(scale fixed.Int26_6, i Index) VMetric {
 	// TODO: should 0 be bounds.YMax?
 	v := f.unscaledVMetric(i, 0)
 	v.AdvanceHeight = f.scale(scale * v.AdvanceHeight)
@@ -420,7 +421,7 @@ func (f *Font) VMetric(scale int32, i Index) VMetric {
 }
 
 // Kerning returns the kerning for the given glyph pair.
-func (f *Font) Kerning(scale int32, i0, i1 Index) int32 {
+func (f *Font) Kerning(scale fixed.Int26_6, i0, i1 Index) fixed.Int26_6 {
 	if f.nKern == 0 {
 		return 0
 	}
@@ -434,7 +435,7 @@ func (f *Font) Kerning(scale int32, i0, i1 Index) int32 {
 		} else if ig > g {
 			hi = i
 		} else {
-			return f.scale(scale * int32(int16(u16(f.kern, 22+6*i))))
+			return f.scale(scale * fixed.Int26_6(int16(u16(f.kern, 22+6*i))))
 		}
 	}
 	return 0

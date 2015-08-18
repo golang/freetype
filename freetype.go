@@ -78,15 +78,15 @@ type Context struct {
 	// fontSize and dpi are used to calculate scale. scale is the number of
 	// 26.6 fixed point units in 1 em. hinting is the hinting policy.
 	fontSize, dpi float64
-	scale         int32
+	scale         fixed.Int26_6
 	hinting       Hinting
 	// cache is the glyph cache.
 	cache [nGlyphs * nXFractions * nYFractions]cacheEntry
 }
 
-// PointToFix32 converts the given number of points (as in ``a 12 point font'')
-// into fixed point units.
-func (c *Context) PointToFix32(x float64) fixed.Int26_6 {
+// PointToFixed converts the given number of points (as in ``a 12 point font'')
+// into a 26.6 fixed point number of pixels.
+func (c *Context) PointToFixed(x float64) fixed.Int26_6 {
 	return fixed.Int26_6(x * float64(c.dpi) * (64.0 / 72.0))
 }
 
@@ -269,7 +269,7 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 // recalc recalculates scale and bounds values from the font size, screen
 // resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
-	c.scale = int32(c.fontSize * c.dpi * (64.0 / 72.0))
+	c.scale = fixed.Int26_6(c.fontSize * c.dpi * (64.0 / 72.0))
 	if c.font == nil {
 		c.r.SetBounds(0, 0)
 	} else {

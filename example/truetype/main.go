@@ -17,6 +17,7 @@ import (
 	"log"
 
 	"github.com/golang/freetype/truetype"
+	"golang.org/x/image/math/fixed"
 )
 
 var fontfile = flag.String("fontfile", "../../testdata/luxisr.ttf", "filename of the ttf font")
@@ -56,7 +57,7 @@ func main() {
 		log.Println(err)
 		return
 	}
-	fupe := font.FUnitsPerEm()
+	fupe := fixed.Int26_6(font.FUnitsPerEm())
 	printBounds(font.Bounds(fupe))
 	fmt.Printf("FUnitsPerEm:%d\n\n", fupe)
 

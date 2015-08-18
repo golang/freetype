@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"golang.org/x/image/math/fixed"
 )
 
 func parseTestdataFont(name string) (font *Font, testdataIsOptional bool, err error) {
@@ -40,7 +42,7 @@ func TestParse(t *testing.T) {
 	if got, want := font.FUnitsPerEm(), int32(2048); got != want {
 		t.Errorf("FUnitsPerEm: got %v, want %v", got, want)
 	}
-	fupe := font.FUnitsPerEm()
+	fupe := fixed.Int26_6(font.FUnitsPerEm())
 	if got, want := font.Bounds(fupe), (Bounds{-441, -432, 2024, 2033}); got != want {
 		t.Errorf("Bounds: got %v, want %v", got, want)
 	}
@@ -56,7 +58,7 @@ func TestParse(t *testing.T) {
 	if got, want := font.VMetric(fupe, i0), (VMetric{2465, 553}); got != want {
 		t.Errorf("VMetric: got %v, want %v", got, want)
 	}
-	if got, want := font.Kerning(fupe, i0, i1), int32(-144); got != want {
+	if got, want := font.Kerning(fupe, i0, i1), fixed.Int26_6(-144); got != want {
 		t.Errorf("Kerning: got %v, want %v", got, want)
 	}
 
@@ -196,7 +198,7 @@ func TestIndex(t *testing.T) {
 }
 
 type scalingTestData struct {
-	advanceWidth int32
+	advanceWidth fixed.Int26_6
 	bounds       Bounds
 	points       []Point
 }
@@ -205,13 +207,13 @@ type scalingTestData struct {
 // 213 -22 -111 236 555;-22 -111 1, 178 555 1, 236 555 1, 36 -111 1
 // The line will not have a trailing "\n".
 func scalingTestParse(line string) (ret scalingTestData) {
-	next := func(s string) (string, int32) {
+	next := func(s string) (string, fixed.Int26_6) {
 		t, i := "", strings.Index(s, " ")
 		if i != -1 {
 			s, t = s[:i], s[i+1:]
 		}
 		x, _ := strconv.Atoi(s)
-		return t, int32(x)
+		return t, fixed.Int26_6(x)
 	}
 
 	i := strings.Index(line, ";")
@@ -257,7 +259,7 @@ func scalingTestEquals(a, b []Point) (index int, equals bool) {
 
 var scalingTestCases = []struct {
 	name string
-	size int32
+	size int
 }{
 	{"luxisr", 12},
 	{"x-arial-bold", 11},
@@ -318,7 +320,7 @@ func testScaling(t *testing.T, h Hinting) {
 
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
-			if err = glyphBuf.Load(font, tc.size*64, Index(i), h); err != nil {
+			if err = glyphBuf.Load(font, fixed.I(tc.size), Index(i), h); err != nil {
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
 				continue
 			}

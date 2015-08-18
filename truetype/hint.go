@@ -11,6 +11,8 @@ package truetype
 import (
 	"errors"
 	"math"
+
+	"golang.org/x/image/math/fixed"
 )
 
 const (
@@ -47,7 +49,7 @@ type hinter struct {
 	// Changing the font will require running the new font's fpgm bytecode.
 	// Changing either will require running the font's prep bytecode.
 	font  *Font
-	scale int32
+	scale fixed.Int26_6
 
 	// gs and defaultGS are the current and default graphics state. The
 	// default graphics state is the global default graphics state after
@@ -113,7 +115,7 @@ func resetTwilightPoints(f *Font, p []Point) []Point {
 	return p
 }
 
-func (h *hinter) init(f *Font, scale int32) error {
+func (h *hinter) init(f *Font, scale fixed.Int26_6) error {
 	h.points[twilightZone][0] = resetTwilightPoints(f, h.points[twilightZone][0])
 	h.points[twilightZone][1] = resetTwilightPoints(f, h.points[twilightZone][1])
 	h.points[twilightZone][2] = resetTwilightPoints(f, h.points[twilightZone][2])
@@ -315,8 +317,8 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 					mulDiv(int64(dy), int64(dbx), 0x40)
 				rx := mulDiv(val, int64(dax), discriminant)
 				ry := mulDiv(val, int64(day), discriminant)
-				p.X = a0.X + int32(rx)
-				p.Y = a0.Y + int32(ry)
+				p.X = a0.X + fixed.Int26_6(rx)
+				p.Y = a0.Y + fixed.Int26_6(ry)
 			} else {
 				p.X = (a0.X + a1.X + b0.X + b1.X) / 4
 				p.Y = (a0.Y + a1.Y + b0.Y + b1.Y) / 4
@@ -379,7 +381,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSSW:
 			top--
-			h.gs.singleWidth = f26dot6(h.font.scale(h.scale * h.stack[top]))
+			h.gs.singleWidth = f26dot6(h.font.scale(h.scale * fixed.Int26_6(h.stack[top])))
 
 		case opDUP:
 			if top >= len(h.stack) {
@@ -711,8 +713,8 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if h.gs.zp[0] == 0 {
 				p := h.point(0, unhinted, i)
 				q := h.point(0, current, i)
-				p.X = int32((int64(distance) * int64(h.gs.fv[0])) >> 14)
-				p.Y = int32((int64(distance) * int64(h.gs.fv[1])) >> 14)
+				p.X = fixed.Int26_6((int64(distance) * int64(h.gs.fv[0])) >> 14)
+				p.Y = fixed.Int26_6((int64(distance) * int64(h.gs.fv[1])) >> 14)
 				*q = *p
 			}
 			p := h.point(0, current, i)
@@ -809,7 +811,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			}
 			d := int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), v))
 			if scale {
-				d = int32(int64(d*h.scale) / int64(h.font.fUnitsPerEm))
+				d = int32(int64(d*int32(h.scale)) / int64(h.font.fUnitsPerEm))
 			}
 			h.stack[top-1] = d
 
@@ -818,7 +820,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				return errors.New("truetype: hinting: stack overflow")
 			}
 			// For MPS, point size should be irrelevant; we return the PPEM.
-			h.stack[top] = h.scale >> 6
+			h.stack[top] = int32(h.scale) >> 6
 			top++
 
 		case opFLIPON, opFLIPOFF:
@@ -935,7 +937,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opWCVTF:
 			top -= 2
-			h.setScaledCVT(h.stack[top], f26dot6(h.font.scale(h.scale*h.stack[top+1])))
+			h.setScaledCVT(h.stack[top], f26dot6(h.font.scale(h.scale*fixed.Int26_6(h.stack[top+1]))))
 
 		case opDELTAP2, opDELTAP3, opDELTAC1, opDELTAC2, opDELTAC3:
 			goto delta
@@ -1144,7 +1146,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 					p0 := h.point(1, inFontUnits, i)
 					p1 := h.point(0, inFontUnits, h.gs.rp[0])
 					oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
-					oldDist = f26dot6(h.font.scale(h.scale * int32(oldDist)))
+					oldDist = f26dot6(h.font.scale(h.scale * fixed.Int26_6(oldDist)))
 				}
 
 				// Single-width cut-in test.
@@ -1358,7 +1360,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 					c += 32
 				}
 				c += h.gs.deltaBase
-				if ppem := (h.scale + 1<<5) >> 6; ppem != c {
+				if ppem := (int32(h.scale) + 1<<5) >> 6; ppem != c {
 					continue
 				}
 				b = (b & 0x0f) - 8
@@ -1399,7 +1401,7 @@ func (h *hinter) initializeScaledCVT() {
 	}
 	for i := range h.scaledCVT {
 		unscaled := uint16(h.font.cvt[2*i])<<8 | uint16(h.font.cvt[2*i+1])
-		h.scaledCVT[i] = f26dot6(h.font.scale(h.scale * int32(int16(unscaled))))
+		h.scaledCVT[i] = f26dot6(h.font.scale(h.scale * fixed.Int26_6(int16(unscaled))))
 	}
 }
 
@@ -1437,7 +1439,7 @@ func (h *hinter) move(p *Point, distance f26dot6, touch bool) {
 	fvx := int64(h.gs.fv[0])
 	pvx := int64(h.gs.pv[0])
 	if fvx == 0x4000 && pvx == 0x4000 {
-		p.X += int32(distance)
+		p.X += fixed.Int26_6(distance)
 		if touch {
 			p.Flags |= flagTouchedX
 		}
@@ -1447,7 +1449,7 @@ func (h *hinter) move(p *Point, distance f26dot6, touch bool) {
 	fvy := int64(h.gs.fv[1])
 	pvy := int64(h.gs.pv[1])
 	if fvy == 0x4000 && pvy == 0x4000 {
-		p.Y += int32(distance)
+		p.Y += fixed.Int26_6(distance)
 		if touch {
 			p.Flags |= flagTouchedY
 		}
@@ -1457,14 +1459,14 @@ func (h *hinter) move(p *Point, distance f26dot6, touch bool) {
 	fvDotPv := (fvx*pvx + fvy*pvy) >> 14
 
 	if fvx != 0 {
-		p.X += int32(mulDiv(fvx, int64(distance), fvDotPv))
+		p.X += fixed.Int26_6(mulDiv(fvx, int64(distance), fvDotPv))
 		if touch {
 			p.Flags |= flagTouchedX
 		}
 	}
 
 	if fvy != 0 {
-		p.Y += int32(mulDiv(fvy, int64(distance), fvDotPv))
+		p.Y += fixed.Int26_6(mulDiv(fvy, int64(distance), fvDotPv))
 		if touch {
 			p.Flags |= flagTouchedY
 		}
@@ -1480,7 +1482,7 @@ func (h *hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 		return
 	}
 
-	var ifu1, ifu2 int32
+	var ifu1, ifu2 fixed.Int26_6
 	if interpY {
 		ifu1 = h.points[glyphZone][inFontUnits][ref1].Y
 		ifu2 = h.points[glyphZone][inFontUnits][ref2].Y
@@ -1493,7 +1495,7 @@ func (h *hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 		ref1, ref2 = ref2, ref1
 	}
 
-	var unh1, unh2, delta1, delta2 int32
+	var unh1, unh2, delta1, delta2 fixed.Int26_6
 	if interpY {
 		unh1 = h.points[glyphZone][unhinted][ref1].Y
 		unh2 = h.points[glyphZone][unhinted][ref2].Y
@@ -1506,7 +1508,7 @@ func (h *hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 		delta2 = h.points[glyphZone][current][ref2].X - unh2
 	}
 
-	var xy, ifuXY int32
+	var xy, ifuXY fixed.Int26_6
 	if ifu1 == ifu2 {
 		for i := p1; i <= p2; i++ {
 			if interpY {
@@ -1555,7 +1557,7 @@ func (h *hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 			} else {
 				numer -= 0x8000
 			}
-			xy = unh1 + delta1 + int32(numer/0x10000)
+			xy = unh1 + delta1 + fixed.Int26_6(numer/0x10000)
 		}
 
 		if interpY {
@@ -1567,7 +1569,7 @@ func (h *hinter) iupInterp(interpY bool, p1, p2, ref1, ref2 int) {
 }
 
 func (h *hinter) iupShift(interpY bool, p1, p2, p int) {
-	var delta int32
+	var delta fixed.Int26_6
 	if interpY {
 		delta = h.points[glyphZone][current][p].Y - h.points[glyphZone][unhinted][p].Y
 	} else {
