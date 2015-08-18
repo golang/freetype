@@ -63,7 +63,7 @@ type hinter struct {
 
 	// scaledCVT is the lazily initialized scaled Control Value Table.
 	scaledCVTInitialized bool
-	scaledCVT            []f26dot6
+	scaledCVT            []fixed.Int26_6
 }
 
 // graphicsState is described at https://developer.apple.com/fonts/TTRefMan/RM04/Chap4.html
@@ -73,15 +73,15 @@ type graphicsState struct {
 	// Reference points and zone pointers.
 	rp, zp [3]int32
 	// Control Value / Single Width Cut-In.
-	controlValueCutIn, singleWidthCutIn, singleWidth f26dot6
+	controlValueCutIn, singleWidthCutIn, singleWidth fixed.Int26_6
 	// Delta base / shift.
 	deltaBase, deltaShift int32
 	// Minimum distance.
-	minDist f26dot6
+	minDist fixed.Int26_6
 	// Loop count.
 	loop int32
 	// Rounding policy.
-	roundPeriod, roundPhase, roundThreshold f26dot6
+	roundPeriod, roundPhase, roundThreshold fixed.Int26_6
 	roundSuper45                            bool
 	// Auto-flip.
 	autoFlip bool
@@ -92,13 +92,13 @@ var globalDefaultGS = graphicsState{
 	fv:                [2]f2dot14{0x4000, 0},
 	dv:                [2]f2dot14{0x4000, 0},
 	zp:                [3]int32{1, 1, 1},
-	controlValueCutIn: (17 << 6) / 16, // 17/16 as an f26dot6.
+	controlValueCutIn: (17 << 6) / 16, // 17/16 as a fixed.Int26_6.
 	deltaBase:         9,
 	deltaShift:        3,
-	minDist:           1 << 6, // 1 as an f26dot6.
+	minDist:           1 << 6, // 1 as a fixed.Int26_6.
 	loop:              1,
-	roundPeriod:       1 << 6, // 1 as an f26dot6.
-	roundThreshold:    1 << 5, // 1/2 as an f26dot6.
+	roundPeriod:       1 << 6, // 1 as a fixed.Int26_6.
+	roundThreshold:    1 << 5, // 1/2 as a fixed.Int26_6.
 	roundSuper45:      false,
 	autoFlip:          true,
 }
@@ -360,7 +360,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSMD:
 			top--
-			h.gs.minDist = f26dot6(h.stack[top])
+			h.gs.minDist = fixed.Int26_6(h.stack[top])
 
 		case opELSE:
 			opcode = 1
@@ -373,15 +373,15 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSCVTCI:
 			top--
-			h.gs.controlValueCutIn = f26dot6(h.stack[top])
+			h.gs.controlValueCutIn = fixed.Int26_6(h.stack[top])
 
 		case opSSWCI:
 			top--
-			h.gs.singleWidthCutIn = f26dot6(h.stack[top])
+			h.gs.singleWidthCutIn = fixed.Int26_6(h.stack[top])
 
 		case opSSW:
 			top--
-			h.gs.singleWidth = f26dot6(h.font.scale(h.scale * fixed.Int26_6(h.stack[top])))
+			h.gs.singleWidth = h.font.scale(h.scale * fixed.Int26_6(h.stack[top]))
 
 		case opDUP:
 			if top >= len(h.stack) {
@@ -424,7 +424,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if p == nil || q == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			d := dotProduct(f26dot6(q.X-p.X), f26dot6(q.Y-p.Y), h.gs.pv) / 2
+			d := dotProduct(fixed.Int26_6(q.X-p.X), fixed.Int26_6(q.Y-p.Y), h.gs.pv) / 2
 			h.move(p, +d, true)
 			h.move(q, -d, true)
 
@@ -502,9 +502,9 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if p == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			distance := f26dot6(0)
+			distance := fixed.Int26_6(0)
 			if opcode == opMDAP1 {
-				distance = dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
+				distance = dotProduct(p.X, p.Y, h.gs.pv)
 				// TODO: metrics compensation.
 				distance = h.round(distance) - distance
 			}
@@ -610,7 +610,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opSHPIX:
 			top--
-			d := f26dot6(h.stack[top])
+			d := fixed.Int26_6(h.stack[top])
 			if top < int(h.gs.loop) {
 				return errors.New("truetype: hinting: stack underflow")
 			}
@@ -635,22 +635,22 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			}
 			p := h.point(1, pointType, h.gs.rp[2])
 			oldP := h.point(0, pointType, h.gs.rp[1])
-			oldRange := dotProduct(f26dot6(p.X-oldP.X), f26dot6(p.Y-oldP.Y), h.gs.dv)
+			oldRange := dotProduct(p.X-oldP.X, p.Y-oldP.Y, h.gs.dv)
 
 			p = h.point(1, current, h.gs.rp[2])
 			curP := h.point(0, current, h.gs.rp[1])
-			curRange := dotProduct(f26dot6(p.X-curP.X), f26dot6(p.Y-curP.Y), h.gs.pv)
+			curRange := dotProduct(p.X-curP.X, p.Y-curP.Y, h.gs.pv)
 			for ; h.gs.loop != 0; h.gs.loop-- {
 				top--
 				i := h.stack[top]
 				p = h.point(2, pointType, i)
-				oldDist := dotProduct(f26dot6(p.X-oldP.X), f26dot6(p.Y-oldP.Y), h.gs.dv)
+				oldDist := dotProduct(p.X-oldP.X, p.Y-oldP.Y, h.gs.dv)
 				p = h.point(2, current, i)
-				curDist := dotProduct(f26dot6(p.X-curP.X), f26dot6(p.Y-curP.Y), h.gs.pv)
-				newDist := f26dot6(0)
+				curDist := dotProduct(p.X-curP.X, p.Y-curP.Y, h.gs.pv)
+				newDist := fixed.Int26_6(0)
 				if oldDist != 0 {
 					if oldRange != 0 {
-						newDist = f26dot6(mulDiv(int64(oldDist), int64(curRange), int64(oldRange)))
+						newDist = fixed.Int26_6(mulDiv(int64(oldDist), int64(curRange), int64(oldRange)))
 					} else {
 						newDist = -oldDist
 					}
@@ -662,7 +662,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opMSIRP0, opMSIRP1:
 			top -= 2
 			i := h.stack[top]
-			distance := f26dot6(h.stack[top+1])
+			distance := fixed.Int26_6(h.stack[top+1])
 
 			// TODO: special case h.gs.zp[1] == 0 in C Freetype.
 			ref := h.point(0, current, h.gs.rp[0])
@@ -670,7 +670,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if ref == nil || p == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+			curDist := dotProduct(p.X-ref.X, p.Y-ref.Y, h.gs.pv)
 
 			// Set-RP0 bit.
 			if opcode == opMSIRP1 {
@@ -696,7 +696,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				if p == nil {
 					return errors.New("truetype: hinting: point out of range")
 				}
-				h.move(p, -dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv), true)
+				h.move(p, -dotProduct(p.X-ref.X, p.Y-ref.Y, h.gs.pv), true)
 			}
 			h.gs.loop = 1
 
@@ -718,7 +718,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				*q = *p
 			}
 			p := h.point(0, current, i)
-			oldDist := dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
+			oldDist := dotProduct(p.X, p.Y, h.gs.pv)
 			if opcode == opMIAP1 {
 				if fabs(distance-oldDist) > h.gs.controlValueCutIn {
 					distance = oldDist
@@ -755,7 +755,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opWCVTP:
 			top -= 2
-			h.setScaledCVT(h.stack[top], f26dot6(h.stack[top+1]))
+			h.setScaledCVT(h.stack[top], fixed.Int26_6(h.stack[top+1]))
 
 		case opRCVT:
 			h.stack[top-1] = int32(h.getScaledCVT(h.stack[top-1]))
@@ -764,11 +764,11 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			i := h.stack[top-1]
 			if opcode == opGC0 {
 				p := h.point(2, current, i)
-				h.stack[top-1] = int32(dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv))
+				h.stack[top-1] = int32(dotProduct(p.X, p.Y, h.gs.pv))
 			} else {
 				p := h.point(2, unhinted, i)
 				// Using dv as per C Freetype.
-				h.stack[top-1] = int32(dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.dv))
+				h.stack[top-1] = int32(dotProduct(p.X, p.Y, h.gs.dv))
 			}
 
 		case opSCFS:
@@ -778,8 +778,8 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if p == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			c := dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
-			h.move(p, f26dot6(h.stack[top+1])-c, true)
+			c := dotProduct(p.X, p.Y, h.gs.pv)
+			h.move(p, fixed.Int26_6(h.stack[top+1])-c, true)
 			if h.gs.zp[2] != 0 {
 				break
 			}
@@ -809,7 +809,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if p == nil || q == nil {
 				return errors.New("truetype: hinting: point out of range")
 			}
-			d := int32(dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), v))
+			d := int32(dotProduct(p.X-q.X, p.Y-q.Y, v))
 			if scale {
 				d = int32(int64(d*int32(h.scale)) / int64(h.font.fUnitsPerEm))
 			}
@@ -854,7 +854,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			h.stack[top-1] = bool2int32(h.stack[top-1] != h.stack[top])
 
 		case opODD, opEVEN:
-			i := h.round(f26dot6(h.stack[top-1])) >> 6
+			i := h.round(fixed.Int26_6(h.stack[top-1])) >> 6
 			h.stack[top-1] = int32(i&1) ^ int32(opcode-opODD)
 
 		case opIF:
@@ -902,11 +902,11 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if h.stack[top] == 0 {
 				return errors.New("truetype: hinting: division by zero")
 			}
-			h.stack[top-1] = int32(fdiv(f26dot6(h.stack[top-1]), f26dot6(h.stack[top])))
+			h.stack[top-1] = int32(fdiv(fixed.Int26_6(h.stack[top-1]), fixed.Int26_6(h.stack[top])))
 
 		case opMUL:
 			top--
-			h.stack[top-1] = int32(fmul(f26dot6(h.stack[top-1]), f26dot6(h.stack[top])))
+			h.stack[top-1] = int32(fmul(fixed.Int26_6(h.stack[top-1]), fixed.Int26_6(h.stack[top])))
 
 		case opABS:
 			if h.stack[top-1] < 0 {
@@ -926,7 +926,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 		case opROUND00, opROUND01, opROUND10, opROUND11:
 			// The four flavors of opROUND are equivalent. See the comment below on
 			// opNROUND for the rationale.
-			h.stack[top-1] = int32(h.round(f26dot6(h.stack[top-1])))
+			h.stack[top-1] = int32(h.round(fixed.Int26_6(h.stack[top-1])))
 
 		case opNROUND00, opNROUND01, opNROUND10, opNROUND11:
 			// No-op. The spec says to add one of four "compensations for the engine
@@ -937,7 +937,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 
 		case opWCVTF:
 			top -= 2
-			h.setScaledCVT(h.stack[top], f26dot6(h.font.scale(h.scale*fixed.Int26_6(h.stack[top+1]))))
+			h.setScaledCVT(h.stack[top], h.font.scale(h.scale*fixed.Int26_6(h.stack[top+1])))
 
 		case opDELTAP2, opDELTAP3, opDELTAC1, opDELTAC2, opDELTAC3:
 			goto delta
@@ -959,9 +959,9 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				h.gs.roundPeriod *= 46341
 				h.gs.roundPeriod /= 65536
 			}
-			h.gs.roundPhase = h.gs.roundPeriod * f26dot6((h.stack[top]>>4)&0x03) / 4
+			h.gs.roundPhase = h.gs.roundPeriod * fixed.Int26_6((h.stack[top]>>4)&0x03) / 4
 			if x := h.stack[top] & 0x0f; x != 0 {
-				h.gs.roundThreshold = h.gs.roundPeriod * f26dot6(x-4) / 8
+				h.gs.roundThreshold = h.gs.roundPeriod * fixed.Int26_6(x-4) / 8
 			} else {
 				h.gs.roundThreshold = h.gs.roundPeriod - 1
 			}
@@ -1137,16 +1137,16 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 					return errors.New("truetype: hinting: point out of range")
 				}
 
-				oldDist := f26dot6(0)
+				oldDist := fixed.Int26_6(0)
 				if h.gs.zp[0] == 0 || h.gs.zp[1] == 0 {
 					p0 := h.point(1, unhinted, i)
 					p1 := h.point(0, unhinted, h.gs.rp[0])
-					oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
+					oldDist = dotProduct(p0.X-p1.X, p0.Y-p1.Y, h.gs.dv)
 				} else {
 					p0 := h.point(1, inFontUnits, i)
 					p1 := h.point(0, inFontUnits, h.gs.rp[0])
-					oldDist = dotProduct(f26dot6(p0.X-p1.X), f26dot6(p0.Y-p1.Y), h.gs.dv)
-					oldDist = f26dot6(h.font.scale(h.scale * fixed.Int26_6(oldDist)))
+					oldDist = dotProduct(p0.X-p1.X, p0.Y-p1.Y, h.gs.dv)
+					oldDist = h.font.scale(h.scale * oldDist)
 				}
 
 				// Single-width cut-in test.
@@ -1186,7 +1186,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				}
 
 				// Move the point.
-				oldDist = dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+				oldDist = dotProduct(p.X-ref.X, p.Y-ref.Y, h.gs.pv)
 				h.move(p, distance-oldDist, true)
 
 			} else {
@@ -1214,14 +1214,14 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				if ref == nil || p == nil {
 					return errors.New("truetype: hinting: point out of range")
 				}
-				oldDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.dv)
+				oldDist := dotProduct(p.X-ref.X, p.Y-ref.Y, h.gs.dv)
 
 				ref = h.point(0, current, h.gs.rp[0])
 				p = h.point(1, current, i)
 				if ref == nil || p == nil {
 					return errors.New("truetype: hinting: point out of range")
 				}
-				curDist := dotProduct(f26dot6(p.X-ref.X), f26dot6(p.Y-ref.Y), h.gs.pv)
+				curDist := dotProduct(p.X-ref.X, p.Y-ref.Y, h.gs.pv)
 
 				if h.gs.autoFlip && oldDist^cvtDist < 0 {
 					cvtDist = -cvtDist
@@ -1373,13 +1373,13 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 					if a < 0 || len(h.scaledCVT) <= int(a) {
 						return errors.New("truetype: hinting: index out of range")
 					}
-					h.scaledCVT[a] += f26dot6(b)
+					h.scaledCVT[a] += fixed.Int26_6(b)
 				} else {
 					p := h.point(0, current, h.stack[top+1])
 					if p == nil {
 						return errors.New("truetype: hinting: point out of range")
 					}
-					h.move(p, f26dot6(b), true)
+					h.move(p, fixed.Int26_6(b), true)
 				}
 			}
 			pc++
@@ -1397,16 +1397,16 @@ func (h *hinter) initializeScaledCVT() {
 		if n < 32 {
 			n = 32
 		}
-		h.scaledCVT = make([]f26dot6, len(h.font.cvt)/2, n)
+		h.scaledCVT = make([]fixed.Int26_6, len(h.font.cvt)/2, n)
 	}
 	for i := range h.scaledCVT {
 		unscaled := uint16(h.font.cvt[2*i])<<8 | uint16(h.font.cvt[2*i+1])
-		h.scaledCVT[i] = f26dot6(h.font.scale(h.scale * fixed.Int26_6(int16(unscaled))))
+		h.scaledCVT[i] = h.font.scale(h.scale * fixed.Int26_6(int16(unscaled)))
 	}
 }
 
 // getScaledCVT returns the scaled value from the font's Control Value Table.
-func (h *hinter) getScaledCVT(i int32) f26dot6 {
+func (h *hinter) getScaledCVT(i int32) fixed.Int26_6 {
 	if !h.scaledCVTInitialized {
 		h.initializeScaledCVT()
 	}
@@ -1417,7 +1417,7 @@ func (h *hinter) getScaledCVT(i int32) f26dot6 {
 }
 
 // setScaledCVT overrides the scaled value from the font's Control Value Table.
-func (h *hinter) setScaledCVT(i int32, v f26dot6) {
+func (h *hinter) setScaledCVT(i int32, v fixed.Int26_6) {
 	if !h.scaledCVTInitialized {
 		h.initializeScaledCVT()
 	}
@@ -1435,7 +1435,7 @@ func (h *hinter) point(zonePointer uint32, pt pointType, i int32) *Point {
 	return &points[i]
 }
 
-func (h *hinter) move(p *Point, distance f26dot6, touch bool) {
+func (h *hinter) move(p *Point, distance fixed.Int26_6, touch bool) {
 	fvx := int64(h.gs.fv[0])
 	pvx := int64(h.gs.pv[0])
 	if fvx == 0x4000 && pvx == 0x4000 {
@@ -1590,7 +1590,7 @@ func (h *hinter) iupShift(interpY bool, p1, p2, p int) {
 	}
 }
 
-func (h *hinter) displacement(useZP1 bool) (zonePointer uint32, i int32, d f26dot6, ok bool) {
+func (h *hinter) displacement(useZP1 bool) (zonePointer uint32, i int32, d fixed.Int26_6, ok bool) {
 	zonePointer, i = uint32(0), h.gs.rp[1]
 	if useZP1 {
 		zonePointer, i = 1, h.gs.rp[2]
@@ -1600,7 +1600,7 @@ func (h *hinter) displacement(useZP1 bool) (zonePointer uint32, i int32, d f26do
 	if p == nil || q == nil {
 		return 0, 0, 0, false
 	}
-	d = dotProduct(f26dot6(p.X-q.X), f26dot6(p.Y-q.Y), h.gs.pv)
+	d = dotProduct(p.X-q.X, p.Y-q.Y, h.gs.pv)
 	return zonePointer, i, d, true
 }
 
@@ -1651,11 +1651,8 @@ func normalize(x, y f2dot14) [2]f2dot14 {
 	return [2]f2dot14{f2dot14(fx), f2dot14(fy)}
 }
 
-// f26dot6 is a 26.6 fixed point number.
-type f26dot6 int32
-
 // fabs returns abs(x) in 26.6 fixed point arithmetic.
-func fabs(x f26dot6) f26dot6 {
+func fabs(x fixed.Int26_6) fixed.Int26_6 {
 	if x < 0 {
 		return -x
 	}
@@ -1663,13 +1660,13 @@ func fabs(x f26dot6) f26dot6 {
 }
 
 // fdiv returns x/y in 26.6 fixed point arithmetic.
-func fdiv(x, y f26dot6) f26dot6 {
-	return f26dot6((int64(x) << 6) / int64(y))
+func fdiv(x, y fixed.Int26_6) fixed.Int26_6 {
+	return fixed.Int26_6((int64(x) << 6) / int64(y))
 }
 
 // fmul returns x*y in 26.6 fixed point arithmetic.
-func fmul(x, y f26dot6) f26dot6 {
-	return f26dot6((int64(x)*int64(y) + 1<<5) >> 6)
+func fmul(x, y fixed.Int26_6) fixed.Int26_6 {
+	return fixed.Int26_6((int64(x)*int64(y) + 1<<5) >> 6)
 }
 
 // dotProduct returns the dot product of [x, y] and q. It is almost the same as
@@ -1677,10 +1674,10 @@ func fmul(x, y f26dot6) f26dot6 {
 //	py := int64(y)
 //	qx := int64(q[0])
 //	qy := int64(q[1])
-//	return f26dot6((px*qx + py*qy + 1<<13) >> 14)
+//	return fixed.Int26_6((px*qx + py*qy + 1<<13) >> 14)
 // except that the computation is done with 32-bit integers to produce exactly
 // the same rounding behavior as C Freetype.
-func dotProduct(x, y f26dot6, q [2]f2dot14) f26dot6 {
+func dotProduct(x, y fixed.Int26_6, q [2]f2dot14) fixed.Int26_6 {
 	// Compute x*q[0] as 64-bit value.
 	l := uint32((int32(x) & 0xFFFF) * int32(q[0]))
 	m := (int32(x) >> 16) * int32(q[0])
@@ -1708,7 +1705,7 @@ func dotProduct(x, y f26dot6, q [2]f2dot14) f26dot6 {
 	l = lo + 0x2000
 	hi += bool2int32(l < lo)
 
-	return f26dot6((uint32(hi) << 18) | (l >> 14))
+	return fixed.Int26_6((uint32(hi) << 18) | (l >> 14))
 }
 
 // mulDiv returns x*y/z, rounded to the nearest integer.
@@ -1727,7 +1724,7 @@ func mulDiv(x, y, z int64) int64 {
 
 // round rounds the given number. The rounding algorithm is described at
 // https://developer.apple.com/fonts/TTRefMan/RM02/Chap2.html#rounding
-func (h *hinter) round(x f26dot6) f26dot6 {
+func (h *hinter) round(x fixed.Int26_6) fixed.Int26_6 {
 	if h.gs.roundPeriod == 0 {
 		// Rounding is off.
 		return x
