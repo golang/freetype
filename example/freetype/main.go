@@ -116,7 +116,7 @@ func main() {
 	}
 
 	// Draw the text.
-	pt := freetype.Pt(10, 10+int(c.PointToFix32(*size)>>8))
+	pt := freetype.Pt(10, 10+int(c.PointToFix32(*size)>>6))
 	for _, s := range text {
 		_, err = c.DrawString(s, pt)
 		if err != nil {
