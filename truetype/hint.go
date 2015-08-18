@@ -720,7 +720,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			p := h.point(0, current, i)
 			oldDist := dotProduct(f26dot6(p.X), f26dot6(p.Y), h.gs.pv)
 			if opcode == opMIAP1 {
-				if (distance - oldDist).abs() > h.gs.controlValueCutIn {
+				if fabs(distance-oldDist) > h.gs.controlValueCutIn {
 					distance = oldDist
 				}
 				// TODO: metrics compensation.
@@ -902,11 +902,11 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 			if h.stack[top] == 0 {
 				return errors.New("truetype: hinting: division by zero")
 			}
-			h.stack[top-1] = int32(f26dot6(h.stack[top-1]).div(f26dot6(h.stack[top])))
+			h.stack[top-1] = int32(fdiv(f26dot6(h.stack[top-1]), f26dot6(h.stack[top])))
 
 		case opMUL:
 			top--
-			h.stack[top-1] = int32(f26dot6(h.stack[top-1]).mul(f26dot6(h.stack[top])))
+			h.stack[top-1] = int32(fmul(f26dot6(h.stack[top-1]), f26dot6(h.stack[top])))
 
 		case opABS:
 			if h.stack[top-1] < 0 {
@@ -1150,7 +1150,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				}
 
 				// Single-width cut-in test.
-				if x := (oldDist - h.gs.singleWidth).abs(); x < h.gs.singleWidthCutIn {
+				if x := fabs(oldDist - h.gs.singleWidth); x < h.gs.singleWidthCutIn {
 					if oldDist >= 0 {
 						oldDist = +h.gs.singleWidth
 					} else {
@@ -1195,7 +1195,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				top -= 2
 				i := h.stack[top]
 				cvtDist := h.getScaledCVT(h.stack[top+1])
-				if (cvtDist - h.gs.singleWidth).abs() < h.gs.singleWidthCutIn {
+				if fabs(cvtDist-h.gs.singleWidth) < h.gs.singleWidthCutIn {
 					if cvtDist >= 0 {
 						cvtDist = +h.gs.singleWidth
 					} else {
@@ -1233,7 +1233,7 @@ func (h *hinter) run(program []byte, pCurrent, pUnhinted, pInFontUnits []Point, 
 				if opcode&0x04 != 0 {
 					// The CVT value is only used if close enough to oldDist.
 					if (h.gs.zp[0] == h.gs.zp[1]) &&
-						((cvtDist - oldDist).abs() > h.gs.controlValueCutIn) {
+						(fabs(cvtDist-oldDist) > h.gs.controlValueCutIn) {
 
 						distance = oldDist
 					}
@@ -1654,21 +1654,21 @@ func normalize(x, y f2dot14) [2]f2dot14 {
 // f26dot6 is a 26.6 fixed point number.
 type f26dot6 int32
 
-// abs returns abs(x) in 26.6 fixed point arithmetic.
-func (x f26dot6) abs() f26dot6 {
+// fabs returns abs(x) in 26.6 fixed point arithmetic.
+func fabs(x f26dot6) f26dot6 {
 	if x < 0 {
 		return -x
 	}
 	return x
 }
 
-// div returns x/y in 26.6 fixed point arithmetic.
-func (x f26dot6) div(y f26dot6) f26dot6 {
+// fdiv returns x/y in 26.6 fixed point arithmetic.
+func fdiv(x, y f26dot6) f26dot6 {
 	return f26dot6((int64(x) << 6) / int64(y))
 }
 
-// mul returns x*y in 26.6 fixed point arithmetic.
-func (x f26dot6) mul(y f26dot6) f26dot6 {
+// fmul returns x*y in 26.6 fixed point arithmetic.
+func fmul(x, y f26dot6) f26dot6 {
 	return f26dot6((int64(x)*int64(y) + 1<<5) >> 6)
 }
 
