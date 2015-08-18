@@ -304,7 +304,7 @@ func (r *Rasterizer) Add1(b fixed.Point26_6) {
 // Add2 adds a quadratic segment to the current curve.
 func (r *Rasterizer) Add2(b, c fixed.Point26_6) {
 	// Calculate nSplit (the number of recursive decompositions) based on how
-	// `curvy' it is. Specifically, how much the middle point b deviates from
+	// 'curvy' it is. Specifically, how much the middle point b deviates from
 	// (a+c)/2.
 	dev := maxAbs(r.a.X-2*b.X+c.X, r.a.Y-2*b.Y+c.Y) / fixed.Int26_6(r.splitScale2)
 	nsplit := 0
@@ -312,7 +312,8 @@ func (r *Rasterizer) Add2(b, c fixed.Point26_6) {
 		dev /= 4
 		nsplit++
 	}
-	// dev is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit is 16.
+	// dev is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit
+	// is 16.
 	const maxNsplit = 16
 	if nsplit > maxNsplit {
 		panic("freetype/raster: Add2 nsplit too large: " + strconv.Itoa(nsplit))
@@ -331,8 +332,9 @@ func (r *Rasterizer) Add2(b, c fixed.Point26_6) {
 		s := sStack[i]
 		p := pStack[2*i:]
 		if s > 0 {
-			// Split the quadratic curve p[:3] into an equivalent set of two shorter curves:
-			// p[:3] and p[2:5]. The new p[4] is the old p[2], and p[0] is unchanged.
+			// Split the quadratic curve p[:3] into an equivalent set of two
+			// shorter curves: p[:3] and p[2:5]. The new p[4] is the old p[2],
+			// and p[0] is unchanged.
 			mx := p[1].X
 			p[4].X = p[2].X
 			p[3].X = (p[4].X + mx) / 2
@@ -348,7 +350,8 @@ func (r *Rasterizer) Add2(b, c fixed.Point26_6) {
 			sStack[i+1] = s - 1
 			i++
 		} else {
-			// Replace the level-0 quadratic with a two-linear-piece approximation.
+			// Replace the level-0 quadratic with a two-linear-piece
+			// approximation.
 			midx := (p[0].X + 2*p[1].X + p[2].X) / 4
 			midy := (p[0].Y + 2*p[1].Y + p[2].Y) / 4
 			r.Add1(fixed.Point26_6{midx, midy})
@@ -360,7 +363,8 @@ func (r *Rasterizer) Add2(b, c fixed.Point26_6) {
 
 // Add3 adds a cubic segment to the current curve.
 func (r *Rasterizer) Add3(b, c, d fixed.Point26_6) {
-	// Calculate nSplit (the number of recursive decompositions) based on how `curvy' it is.
+	// Calculate nSplit (the number of recursive decompositions) based on how
+	// 'curvy' it is.
 	dev2 := maxAbs(r.a.X-3*(b.X+c.X)+d.X, r.a.Y-3*(b.Y+c.Y)+d.Y) / fixed.Int26_6(r.splitScale2)
 	dev3 := maxAbs(r.a.X-2*b.X+d.X, r.a.Y-2*b.Y+d.Y) / fixed.Int26_6(r.splitScale3)
 	nsplit := 0
@@ -369,7 +373,8 @@ func (r *Rasterizer) Add3(b, c, d fixed.Point26_6) {
 		dev3 /= 4
 		nsplit++
 	}
-	// devN is 32-bit, and nsplit++ every time we shift off 2 bits, so maxNsplit is 16.
+	// devN is 32-bit, and nsplit++ every time we shift off 2 bits, so
+	// maxNsplit is 16.
 	const maxNsplit = 16
 	if nsplit > maxNsplit {
 		panic("freetype/raster: Add3 nsplit too large: " + strconv.Itoa(nsplit))
@@ -389,8 +394,9 @@ func (r *Rasterizer) Add3(b, c, d fixed.Point26_6) {
 		s := sStack[i]
 		p := pStack[3*i:]
 		if s > 0 {
-			// Split the cubic curve p[:4] into an equivalent set of two shorter curves:
-			// p[:4] and p[3:7]. The new p[6] is the old p[3], and p[0] is unchanged.
+			// Split the cubic curve p[:4] into an equivalent set of two
+			// shorter curves: p[:4] and p[3:7]. The new p[6] is the old p[3],
+			// and p[0] is unchanged.
 			m01x := (p[0].X + p[1].X) / 2
 			m12x := (p[1].X + p[2].X) / 2
 			m23x := (p[2].X + p[3].X) / 2

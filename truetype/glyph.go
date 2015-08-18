@@ -21,11 +21,11 @@ const (
 	// TODO: implement VerticalHinting.
 )
 
-// A Point is a co-ordinate pair plus whether it is ``on'' a contour or an
-// ``off'' control point.
+// A Point is a co-ordinate pair plus whether it is 'on' a contour or an 'off'
+// control point.
 type Point struct {
 	X, Y fixed.Int26_6
-	// The Flags' LSB means whether or not this Point is ``on'' the contour.
+	// The Flags' LSB means whether or not this Point is 'on' the contour.
 	// Other bits are reserved for internal use.
 	Flags uint32
 }

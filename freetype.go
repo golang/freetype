@@ -84,7 +84,7 @@ type Context struct {
 	cache [nGlyphs * nXFractions * nYFractions]cacheEntry
 }
 
-// PointToFixed converts the given number of points (as in ``a 12 point font'')
+// PointToFixed converts the given number of points (as in "a 12 point font")
 // into a 26.6 fixed point number of pixels.
 func (c *Context) PointToFixed(x float64) fixed.Int26_6 {
 	return fixed.Int26_6(x * float64(c.dpi) * (64.0 / 72.0))
@@ -304,7 +304,7 @@ func (c *Context) SetFont(font *truetype.Font) {
 	c.recalc()
 }
 
-// SetFontSize sets the font size in points (as in ``a 12 point font'').
+// SetFontSize sets the font size in points (as in "a 12 point font").
 func (c *Context) SetFontSize(fontSize float64) {
 	if c.fontSize == fontSize {
 		return

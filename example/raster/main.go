@@ -28,7 +28,7 @@ type node struct {
 	x, y, degree int
 }
 
-// These contours "outside" and "inside" are from the `A' glyph from the Droid
+// These contours "outside" and "inside" are from the 'A' glyph from the Droid
 // Serif Regular font.
 
 var outside = []node{
