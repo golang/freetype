@@ -15,13 +15,13 @@ import (
 )
 
 func BenchmarkDrawString(b *testing.B) {
-	data, err := ioutil.ReadFile("../licenses/gpl.txt")
+	data, err := ioutil.ReadFile("licenses/gpl.txt")
 	if err != nil {
 		b.Fatal(err)
 	}
 	lines := strings.Split(string(data), "\n")
 
-	data, err = ioutil.ReadFile("../testdata/luxisr.ttf")
+	data, err = ioutil.ReadFile("testdata/luxisr.ttf")
 	if err != nil {
 		b.Fatal(err)
 	}
