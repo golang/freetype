@@ -17,6 +17,7 @@ import (
 	"log"
 
 	"github.com/golang/freetype/truetype"
+	"golang.org/x/exp/shiny/font"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -52,21 +53,21 @@ func main() {
 		log.Println(err)
 		return
 	}
-	font, err := truetype.Parse(b)
+	f, err := truetype.Parse(b)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	fupe := fixed.Int26_6(font.FUnitsPerEm())
-	printBounds(font.Bounds(fupe))
+	fupe := fixed.Int26_6(f.FUnitsPerEm())
+	printBounds(f.Bounds(fupe))
 	fmt.Printf("FUnitsPerEm:%d\n\n", fupe)
 
 	c0, c1 := 'A', 'V'
 
-	i0 := font.Index(c0)
-	hm := font.HMetric(fupe, i0)
+	i0 := f.Index(c0)
+	hm := f.HMetric(fupe, i0)
 	g := truetype.NewGlyphBuf()
-	err = g.Load(font, fupe, i0, truetype.NoHinting)
+	err = g.Load(f, fupe, i0, font.HintingNone)
 	if err != nil {
 		log.Println(err)
 		return
@@ -74,6 +75,6 @@ func main() {
 	fmt.Printf("'%c' glyph\n", c0)
 	fmt.Printf("AdvanceWidth:%d LeftSideBearing:%d\n", hm.AdvanceWidth, hm.LeftSideBearing)
 	printGlyph(g)
-	i1 := font.Index(c1)
-	fmt.Printf("\n'%c', '%c' Kerning:%d\n", c0, c1, font.Kerning(fupe, i0, i1))
+	i1 := f.Index(c1)
+	fmt.Printf("\n'%c', '%c' Kerning:%d\n", c0, c1, f.Kerning(fupe, i0, i1))
 }

@@ -15,55 +15,56 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/exp/shiny/font"
 	"golang.org/x/image/math/fixed"
 )
 
-func parseTestdataFont(name string) (font *Font, testdataIsOptional bool, err error) {
+func parseTestdataFont(name string) (f *Font, testdataIsOptional bool, err error) {
 	b, err := ioutil.ReadFile(fmt.Sprintf("../testdata/%s.ttf", name))
 	if err != nil {
 		// The "x-foo" fonts are optional tests, as they are not checked
 		// in for copyright or file size reasons.
 		return nil, strings.HasPrefix(name, "x-"), fmt.Errorf("%s: ReadFile: %v", name, err)
 	}
-	font, err = Parse(b)
+	f, err = Parse(b)
 	if err != nil {
 		return nil, true, fmt.Errorf("%s: Parse: %v", name, err)
 	}
-	return font, false, nil
+	return f, false, nil
 }
 
 // TestParse tests that the luxisr.ttf metrics and glyphs are parsed correctly.
 // The numerical values can be manually verified by examining luxisr.ttx.
 func TestParse(t *testing.T) {
-	font, _, err := parseTestdataFont("luxisr")
+	f, _, err := parseTestdataFont("luxisr")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := font.FUnitsPerEm(), int32(2048); got != want {
+	if got, want := f.FUnitsPerEm(), int32(2048); got != want {
 		t.Errorf("FUnitsPerEm: got %v, want %v", got, want)
 	}
-	fupe := fixed.Int26_6(font.FUnitsPerEm())
-	if got, want := font.Bounds(fupe), (Bounds{-441, -432, 2024, 2033}); got != want {
+	fupe := fixed.Int26_6(f.FUnitsPerEm())
+	if got, want := f.Bounds(fupe), (Bounds{-441, -432, 2024, 2033}); got != want {
 		t.Errorf("Bounds: got %v, want %v", got, want)
 	}
 
-	i0 := font.Index('A')
-	i1 := font.Index('V')
+	i0 := f.Index('A')
+	i1 := f.Index('V')
 	if i0 != 36 || i1 != 57 {
 		t.Fatalf("Index: i0, i1 = %d, %d, want 36, 57", i0, i1)
 	}
-	if got, want := font.HMetric(fupe, i0), (HMetric{1366, 19}); got != want {
+	if got, want := f.HMetric(fupe, i0), (HMetric{1366, 19}); got != want {
 		t.Errorf("HMetric: got %v, want %v", got, want)
 	}
-	if got, want := font.VMetric(fupe, i0), (VMetric{2465, 553}); got != want {
+	if got, want := f.VMetric(fupe, i0), (VMetric{2465, 553}); got != want {
 		t.Errorf("VMetric: got %v, want %v", got, want)
 	}
-	if got, want := font.Kerning(fupe, i0, i1), fixed.Int26_6(-144); got != want {
+	if got, want := f.Kerning(fupe, i0, i1), fixed.Int26_6(-144); got != want {
 		t.Errorf("Kerning: got %v, want %v", got, want)
 	}
 
 	g := NewGlyphBuf()
-	err = g.Load(font, fupe, i0, NoHinting)
+	err = g.Load(f, fupe, i0, font.HintingNone)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestIndex(t *testing.T) {
 		},
 	}
 	for name, wants := range testCases {
-		font, testdataIsOptional, err := parseTestdataFont(name)
+		f, testdataIsOptional, err := parseTestdataFont(name)
 		if err != nil {
 			if testdataIsOptional {
 				t.Log(err)
@@ -190,7 +191,7 @@ func TestIndex(t *testing.T) {
 			continue
 		}
 		for r, want := range wants {
-			if got := font.Index(r); got != want {
+			if got := f.Index(r); got != want {
 				t.Errorf("%s: Index of %q, aka %U: got %d, want %d", name, r, r, got, want)
 			}
 		}
@@ -268,9 +269,9 @@ var scalingTestCases = []struct {
 	{"x-times-new-roman", 13},
 }
 
-func testScaling(t *testing.T, h Hinting) {
+func testScaling(t *testing.T, h font.Hinting) {
 	for _, tc := range scalingTestCases {
-		font, testdataIsOptional, err := parseTestdataFont(tc.name)
+		f, testdataIsOptional, err := parseTestdataFont(tc.name)
 		if err != nil {
 			if testdataIsOptional {
 				t.Log(err)
@@ -280,19 +281,19 @@ func testScaling(t *testing.T, h Hinting) {
 			continue
 		}
 		hintingStr := "sans"
-		if h != NoHinting {
+		if h != font.HintingNone {
 			hintingStr = "with"
 		}
-		f, err := os.Open(fmt.Sprintf(
+		testFile, err := os.Open(fmt.Sprintf(
 			"../testdata/%s-%dpt-%s-hinting.txt", tc.name, tc.size, hintingStr))
 		if err != nil {
 			t.Errorf("%s: Open: %v", tc.name, err)
 			continue
 		}
-		defer f.Close()
+		defer testFile.Close()
 
 		wants := []scalingTestData{}
-		scanner := bufio.NewScanner(f)
+		scanner := bufio.NewScanner(testFile)
 		if scanner.Scan() {
 			major, minor, patch := 0, 0, 0
 			_, err := fmt.Sscanf(scanner.Text(), "freetype version %d.%d.%d", &major, &minor, &patch)
@@ -320,7 +321,7 @@ func testScaling(t *testing.T, h Hinting) {
 
 		glyphBuf := NewGlyphBuf()
 		for i, want := range wants {
-			if err = glyphBuf.Load(font, fixed.I(tc.size), Index(i), h); err != nil {
+			if err = glyphBuf.Load(f, fixed.I(tc.size), Index(i), h); err != nil {
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
 				continue
 			}
@@ -359,10 +360,5 @@ func testScaling(t *testing.T, h Hinting) {
 	}
 }
 
-func TestScalingSansHinting(t *testing.T) {
-	testScaling(t, NoHinting)
-}
-
-func TestScalingWithHinting(t *testing.T) {
-	testScaling(t, FullHinting)
-}
+func TestScalingHintingNone(t *testing.T) { testScaling(t, font.HintingNone) }
+func TestScalingHintingFull(t *testing.T) { testScaling(t, font.HintingFull) }

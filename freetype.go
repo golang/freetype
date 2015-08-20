@@ -15,6 +15,7 @@ import (
 
 	"github.com/golang/freetype/raster"
 	"github.com/golang/freetype/truetype"
+	"golang.org/x/exp/shiny/font"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -55,20 +56,10 @@ func Pt(x, y int) fixed.Point26_6 {
 	}
 }
 
-// Hinting is the policy for snapping a glyph's contours to pixel boundaries.
-type Hinting int32
-
-const (
-	// NoHinting means to not perform any hinting.
-	NoHinting = Hinting(truetype.NoHinting)
-	// FullHinting means to use the font's hinting instructions.
-	FullHinting = Hinting(truetype.FullHinting)
-)
-
 // A Context holds the state for drawing text in a given font and size.
 type Context struct {
 	r        *raster.Rasterizer
-	font     *truetype.Font
+	f        *truetype.Font
 	glyphBuf *truetype.GlyphBuf
 	// clip is the clip rectangle for drawing.
 	clip image.Rectangle
@@ -79,7 +70,7 @@ type Context struct {
 	// 26.6 fixed point units in 1 em. hinting is the hinting policy.
 	fontSize, dpi float64
 	scale         fixed.Int26_6
-	hinting       Hinting
+	hinting       font.Hinting
 	// cache is the glyph cache.
 	cache [nGlyphs * nXFractions * nYFractions]cacheEntry
 }
@@ -170,7 +161,7 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy fixed.Int26_6) {
 func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 	fixed.Int26_6, *image.Alpha, image.Point, error) {
 
-	if err := c.glyphBuf.Load(c.font, c.scale, glyph, truetype.Hinting(c.hinting)); err != nil {
+	if err := c.glyphBuf.Load(c.f, c.scale, glyph, c.hinting); err != nil {
 		return 0, nil, image.Point{}, err
 	}
 	// Calculate the integer-pixel bounds for the glyph.
@@ -237,15 +228,15 @@ func (c *Context) glyph(glyph truetype.Index, p fixed.Point26_6) (
 //
 // p is a fixed.Point26_6 and can therefore represent sub-pixel positions.
 func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, error) {
-	if c.font == nil {
+	if c.f == nil {
 		return fixed.Point26_6{}, errors.New("freetype: DrawText called with a nil font")
 	}
 	prev, hasPrev := truetype.Index(0), false
 	for _, rune := range s {
-		index := c.font.Index(rune)
+		index := c.f.Index(rune)
 		if hasPrev {
-			kern := fixed.Int26_6(c.font.Kerning(c.scale, prev, index))
-			if c.hinting != NoHinting {
+			kern := fixed.Int26_6(c.f.Kerning(c.scale, prev, index))
+			if c.hinting != font.HintingNone {
 				kern = (kern + 32) &^ 63
 			}
 			p.X += kern
@@ -270,11 +261,11 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 // resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
 	c.scale = fixed.Int26_6(c.fontSize * c.dpi * (64.0 / 72.0))
-	if c.font == nil {
+	if c.f == nil {
 		c.r.SetBounds(0, 0)
 	} else {
 		// Set the rasterizer's bounds to be big enough to handle the largest glyph.
-		b := c.font.Bounds(c.scale)
+		b := c.f.Bounds(c.scale)
 		xmin := +int(b.XMin) >> 6
 		ymin := -int(b.YMax) >> 6
 		xmax := +int(b.XMax+63) >> 6
@@ -296,11 +287,11 @@ func (c *Context) SetDPI(dpi float64) {
 }
 
 // SetFont sets the font used to draw text.
-func (c *Context) SetFont(font *truetype.Font) {
-	if c.font == font {
+func (c *Context) SetFont(f *truetype.Font) {
+	if c.f == f {
 		return
 	}
-	c.font = font
+	c.f = f
 	c.recalc()
 }
 
@@ -314,7 +305,7 @@ func (c *Context) SetFontSize(fontSize float64) {
 }
 
 // SetHinting sets the hinting policy.
-func (c *Context) SetHinting(hinting Hinting) {
+func (c *Context) SetHinting(hinting font.Hinting) {
 	c.hinting = hinting
 	for i := range c.cache {
 		c.cache[i] = cacheEntry{}

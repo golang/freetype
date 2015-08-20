@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/golang/freetype"
+	"golang.org/x/exp/shiny/font"
 )
 
 var (
@@ -80,7 +81,7 @@ func main() {
 		log.Println(err)
 		return
 	}
-	font, err := freetype.ParseFont(fontBytes)
+	f, err := freetype.ParseFont(fontBytes)
 	if err != nil {
 		log.Println(err)
 		return
@@ -97,16 +98,16 @@ func main() {
 	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)
 	c := freetype.NewContext()
 	c.SetDPI(*dpi)
-	c.SetFont(font)
+	c.SetFont(f)
 	c.SetFontSize(*size)
 	c.SetClip(rgba.Bounds())
 	c.SetDst(rgba)
 	c.SetSrc(fg)
 	switch *hinting {
 	default:
-		c.SetHinting(freetype.NoHinting)
+		c.SetHinting(font.HintingNone)
 	case "full":
-		c.SetHinting(freetype.FullHinting)
+		c.SetHinting(font.HintingFull)
 	}
 
 	// Draw the guidelines.
@@ -127,13 +128,13 @@ func main() {
 	}
 
 	// Save that RGBA image to disk.
-	f, err := os.Create("out.png")
+	outFile, err := os.Create("out.png")
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}
-	defer f.Close()
-	b := bufio.NewWriter(f)
+	defer outFile.Close()
+	b := bufio.NewWriter(outFile)
 	err = png.Encode(b, rgba)
 	if err != nil {
 		log.Println(err)

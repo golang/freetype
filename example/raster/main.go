@@ -163,13 +163,13 @@ func main() {
 	showNodes(rgba, inside)
 
 	// Save that RGBA image to disk.
-	f, err := os.Create("out.png")
+	outFile, err := os.Create("out.png")
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}
-	defer f.Close()
-	b := bufio.NewWriter(f)
+	defer outFile.Close()
+	b := bufio.NewWriter(outFile)
 	err = png.Encode(b, rgba)
 	if err != nil {
 		log.Println(err)

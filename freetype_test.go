@@ -25,7 +25,7 @@ func BenchmarkDrawString(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	font, err := ParseFont(data)
+	f, err := ParseFont(data)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func BenchmarkDrawString(b *testing.B) {
 	c.SetDst(dst)
 	c.SetClip(dst.Bounds())
 	c.SetSrc(image.Black)
-	c.SetFont(font)
+	c.SetFont(f)
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
