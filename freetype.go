@@ -167,8 +167,8 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 	// Calculate the integer-pixel bounds for the glyph.
 	xmin := int(fx+fixed.Int26_6(c.glyphBuf.B.XMin)) >> 6
 	ymin := int(fy-fixed.Int26_6(c.glyphBuf.B.YMax)) >> 6
-	xmax := int(fx+fixed.Int26_6(c.glyphBuf.B.XMax)+0xff) >> 6
-	ymax := int(fy-fixed.Int26_6(c.glyphBuf.B.YMin)+0xff) >> 6
+	xmax := int(fx+fixed.Int26_6(c.glyphBuf.B.XMax)+0x3f) >> 6
+	ymax := int(fy-fixed.Int26_6(c.glyphBuf.B.YMin)+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
 		return 0, nil, image.Point{}, errors.New("freetype: negative sized glyph")
 	}
