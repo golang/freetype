@@ -116,7 +116,7 @@ func (r *Rasterizer) setCell(xi, yi int) {
 }
 
 // scan accumulates area/coverage for the yi'th scanline, going from
-// x0 to x1 in the horizontal direction (in 24.8 fixed point co-ordinates)
+// x0 to x1 in the horizontal direction (in 26.6 fixed point co-ordinates)
 // and from y0f to y1f fractional vertical units within that scanline.
 func (r *Rasterizer) scan(yi int, x0, y0f, x1, y1f fixed.Int26_6) {
 	// Break the 26.6 fixed point X co-ordinates into integral and fractional parts.

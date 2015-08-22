@@ -157,7 +157,7 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy fixed.Int26_6) {
 
 // rasterize returns the advance width, glyph mask and integer-pixel offset
 // to render the given glyph at the given sub-pixel offsets.
-// The 24.8 fixed point arguments fx and fy must be in the range [0, 1).
+// The 26.6 fixed point arguments fx and fy must be in the range [0, 1).
 func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 	fixed.Int26_6, *image.Alpha, image.Point, error) {
 
