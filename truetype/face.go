@@ -68,7 +68,11 @@ func NewFace(f *Font, opts Options) font.Face {
 	ymin := -int(b.YMax) >> 6
 	xmax := +int(b.XMax+63) >> 6
 	ymax := -int(b.YMin-63) >> 6
-	a.r.SetBounds(xmax-xmin, ymax-ymin)
+	a.maxw = xmax - xmin
+	a.maxh = ymax - ymin
+	a.mask = image.NewAlpha(image.Rect(0, 0, a.maxw, a.maxh))
+	a.r.SetBounds(a.maxw, a.maxh)
+	a.p = raster.NewAlphaSrcPainter(a.mask)
 
 	return a
 }
@@ -77,7 +81,11 @@ type face struct {
 	f        *Font
 	hinting  font.Hinting
 	scale    fixed.Int26_6
+	mask     *image.Alpha
 	r        raster.Rasterizer
+	p        raster.Painter
+	maxw     int
+	maxh     int
 	glyphBuf GlyphBuf
 
 	// TODO: clip rectangle?
@@ -105,7 +113,7 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	ix, fx := int(dot.X>>6), dot.X&0x3f
 	iy, fy := int(dot.Y>>6), dot.Y&0x3f
 
-	advanceWidth, mask, offset, ok := a.rasterize(a.f.Index(r), fx, fy)
+	advanceWidth, offset, gw, gh, ok := a.rasterize(a.f.Index(r), fx, fy)
 	if !ok {
 		return fixed.Point26_6{}, image.Rectangle{}, nil, image.Point{}, false
 	}
@@ -113,26 +121,26 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 		X: dot.X + advanceWidth,
 		Y: dot.Y,
 	}
-	mb := mask.Bounds()
 	dr.Min = image.Point{
 		X: ix + offset.X,
 		Y: iy + offset.Y,
 	}
 	dr.Max = image.Point{
-		X: dr.Min.X + mb.Dx(),
-		Y: dr.Min.Y + mb.Dy(),
+		X: dr.Min.X + gw,
+		Y: dr.Min.Y + gh,
 	}
-	return newDot, dr, mask, image.Point{}, true
+	return newDot, dr, a.mask, image.Point{}, true
 }
 
-// rasterize returns the advance width, glyph mask and integer-pixel offset
-// to render the given glyph at the given sub-pixel offsets.
+// rasterize returns the advance width, integer-pixel offset to render at, and
+// the width and height of the given glyph at the given sub-pixel offsets.
+//
 // The 26.6 fixed point arguments fx and fy must be in the range [0, 1).
 func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
-	fixed.Int26_6, *image.Alpha, image.Point, bool) {
+	advanceWidth fixed.Int26_6, offset image.Point, gw int, gh int, ok bool) {
 
 	if err := a.glyphBuf.Load(a.f, a.scale, index, a.hinting); err != nil {
-		return 0, nil, image.Point{}, false
+		return 0, image.Point{}, 0, 0, false
 	}
 	// Calculate the integer-pixel bounds for the glyph.
 	xmin := int(fx+fixed.Int26_6(a.glyphBuf.B.XMin)) >> 6
@@ -140,7 +148,7 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 	xmax := int(fx+fixed.Int26_6(a.glyphBuf.B.XMax)+0x3f) >> 6
 	ymax := int(fy-fixed.Int26_6(a.glyphBuf.B.YMin)+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
-		return 0, nil, image.Point{}, false
+		return 0, image.Point{}, 0, 0, false
 	}
 	// A TrueType's glyph's nodes can have negative co-ordinates, but the
 	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin are
@@ -151,15 +159,20 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 	fy += fixed.Int26_6(-ymin << 6)
 	// Rasterize the glyph's vectors.
 	a.r.Clear()
+	clear(a.mask.Pix)
 	e0 := 0
 	for _, e1 := range a.glyphBuf.End {
 		a.drawContour(a.glyphBuf.Point[e0:e1], fx, fy)
 		e0 = e1
 	}
-	// TODO: don't allocate a new mask each time.
-	mask := image.NewAlpha(image.Rect(0, 0, xmax-xmin, ymax-ymin))
-	a.r.Rasterize(raster.NewAlphaSrcPainter(mask))
-	return fixed.Int26_6(a.glyphBuf.AdvanceWidth), mask, image.Point{xmin, ymin}, true
+	a.r.Rasterize(a.p)
+	return fixed.Int26_6(a.glyphBuf.AdvanceWidth), image.Point{xmin, ymin}, xmax-xmin, ymax-ymin, true
+}
+
+func clear(pix []byte) {
+	for i := range pix {
+		pix[i] = 0
+	}
 }
 
 // drawContour draws the given closed contour with the given offset.
