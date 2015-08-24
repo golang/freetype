@@ -132,6 +132,36 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	return newDot, dr, a.mask, image.Point{}, true
 }
 
+func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.Int26_6, ok bool) {
+	if err := a.glyphBuf.Load(a.f, a.scale, a.f.Index(r), a.hinting); err != nil {
+		return fixed.Rectangle26_6{}, 0, false
+	}
+	xmin := +a.glyphBuf.B.XMin
+	ymin := -a.glyphBuf.B.YMax
+	xmax := +a.glyphBuf.B.XMax
+	ymax := -a.glyphBuf.B.YMin
+	if xmin > xmax || ymin > ymax {
+		return fixed.Rectangle26_6{}, 0, false
+	}
+	return fixed.Rectangle26_6{
+		Min: fixed.Point26_6{
+			X: xmin,
+			Y: ymin,
+		},
+		Max: fixed.Point26_6{
+			X: xmax,
+			Y: ymax,
+		},
+	}, a.glyphBuf.AdvanceWidth, true
+}
+
+func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
+	if err := a.glyphBuf.Load(a.f, a.scale, a.f.Index(r), a.hinting); err != nil {
+		return 0, false
+	}
+	return a.glyphBuf.AdvanceWidth, true
+}
+
 // rasterize returns the advance width, integer-pixel offset to render at, and
 // the width and height of the given glyph at the given sub-pixel offsets.
 //
@@ -143,10 +173,10 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 		return 0, image.Point{}, 0, 0, false
 	}
 	// Calculate the integer-pixel bounds for the glyph.
-	xmin := int(fx+fixed.Int26_6(a.glyphBuf.B.XMin)) >> 6
-	ymin := int(fy-fixed.Int26_6(a.glyphBuf.B.YMax)) >> 6
-	xmax := int(fx+fixed.Int26_6(a.glyphBuf.B.XMax)+0x3f) >> 6
-	ymax := int(fy-fixed.Int26_6(a.glyphBuf.B.YMin)+0x3f) >> 6
+	xmin := int(fx+a.glyphBuf.B.XMin) >> 6
+	ymin := int(fy-a.glyphBuf.B.YMax) >> 6
+	xmax := int(fx+a.glyphBuf.B.XMax+0x3f) >> 6
+	ymax := int(fy-a.glyphBuf.B.YMin+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
 		return 0, image.Point{}, 0, 0, false
 	}
@@ -155,8 +185,8 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 	// the pixel offsets, based on the font's FUnit metrics, that let a
 	// negative co-ordinate in TrueType space be non-negative in rasterizer
 	// space. xmin and ymin are typically <= 0.
-	fx += fixed.Int26_6(-xmin << 6)
-	fy += fixed.Int26_6(-ymin << 6)
+	fx -= fixed.Int26_6(xmin << 6)
+	fy -= fixed.Int26_6(ymin << 6)
 	// Rasterize the glyph's vectors.
 	a.r.Clear()
 	clear(a.mask.Pix)
@@ -166,7 +196,7 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 		e0 = e1
 	}
 	a.r.Rasterize(a.p)
-	return fixed.Int26_6(a.glyphBuf.AdvanceWidth), image.Point{xmin, ymin}, xmax-xmin, ymax-ymin, true
+	return a.glyphBuf.AdvanceWidth, image.Point{xmin, ymin}, xmax - xmin, ymax - ymin, true
 }
 
 func clear(pix []byte) {

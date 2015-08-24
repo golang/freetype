@@ -37,6 +37,8 @@ var (
 	wonb     = flag.Bool("whiteonblack", false, "white text on a black background")
 )
 
+const title = "Jabberwocky"
+
 var text = []string{
 	"’Twas brillig, and the slithy toves",
 	"Did gyre and gimble in the wabe;",
@@ -96,7 +98,8 @@ func main() {
 		fg, bg = image.White, image.Black
 		ruler = color.RGBA{0x22, 0x22, 0x22, 0xff}
 	}
-	rgba := image.NewRGBA(image.Rect(0, 0, 640, 480))
+	const imgW, imgH = 640, 480
+	rgba := image.NewRGBA(image.Rect(0, 0, imgW, imgH))
 	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)
 	for i := 0; i < 200; i++ {
 		rgba.Set(10, 10+i, ruler)
@@ -118,11 +121,18 @@ func main() {
 			Hinting: h,
 		}),
 	}
-	dy0 := int(math.Ceil(*size * *dpi / 72))
+	y := 10 + int(math.Ceil(*size**dpi/72))
 	dy := int(math.Ceil(*size * *spacing * *dpi / 72))
-	for i, s := range text {
-		d.Dot = fixed.P(10, 10+dy0+i*dy)
+	d.Dot = fixed.Point26_6{
+		X: (fixed.I(imgW) - d.MeasureString(title)) / 2,
+		Y: fixed.I(y),
+	}
+	d.DrawString(title)
+	y += dy
+	for _, s := range text {
+		d.Dot = fixed.P(10, y)
 		d.DrawString(s)
+		y += dy
 	}
 
 	// Save that RGBA image to disk.
