@@ -76,5 +76,5 @@ func main() {
 	fmt.Printf("AdvanceWidth:%d LeftSideBearing:%d\n", hm.AdvanceWidth, hm.LeftSideBearing)
 	printGlyph(g)
 	i1 := f.Index(c1)
-	fmt.Printf("\n'%c', '%c' Kerning:%d\n", c0, c1, f.Kerning(fupe, i0, i1))
+	fmt.Printf("\n'%c', '%c' Kern:%d\n", c0, c1, f.Kern(fupe, i0, i1))
 }

@@ -235,7 +235,7 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 	for _, rune := range s {
 		index := c.f.Index(rune)
 		if hasPrev {
-			kern := c.f.Kerning(c.scale, prev, index)
+			kern := c.f.Kern(c.scale, prev, index)
 			if c.hinting != font.HintingNone {
 				kern = (kern + 32) &^ 63
 			}

@@ -59,8 +59,8 @@ func TestParse(t *testing.T) {
 	if got, want := f.VMetric(fupe, i0), (VMetric{2465, 553}); got != want {
 		t.Errorf("VMetric: got %v, want %v", got, want)
 	}
-	if got, want := f.Kerning(fupe, i0, i1), fixed.Int26_6(-144); got != want {
-		t.Errorf("Kerning: got %v, want %v", got, want)
+	if got, want := f.Kern(fupe, i0, i1), fixed.Int26_6(-144); got != want {
+		t.Errorf("Kern: got %v, want %v", got, want)
 	}
 
 	g := NewGlyphBuf()

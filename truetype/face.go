@@ -98,7 +98,7 @@ func (a *face) Close() error { return nil }
 func (a *face) Kern(r0, r1 rune) fixed.Int26_6 {
 	i0 := a.f.Index(r0)
 	i1 := a.f.Index(r1)
-	kern := a.f.Kerning(a.scale, i0, i1)
+	kern := a.f.Kern(a.scale, i0, i1)
 	if a.hinting != font.HintingNone {
 		kern = (kern + 32) &^ 63
 	}

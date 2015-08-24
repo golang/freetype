@@ -420,8 +420,9 @@ func (f *Font) VMetric(scale fixed.Int26_6, i Index) VMetric {
 	return v
 }
 
-// Kerning returns the kerning for the given glyph pair.
-func (f *Font) Kerning(scale fixed.Int26_6, i0, i1 Index) fixed.Int26_6 {
+// Kern returns the horizontal adjustment for the given glyph pair. A positive
+// kern means to move the glyphs further apart.
+func (f *Font) Kern(scale fixed.Int26_6, i0, i1 Index) fixed.Int26_6 {
 	if f.nKern == 0 {
 		return 0
 	}
