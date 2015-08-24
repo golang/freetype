@@ -98,16 +98,16 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy fixed.Int26_6) {
 	// upwards. start is the same thing measured in fixed point units and
 	// positive Y going downwards, and offset by (dx, dy).
 	start := fixed.Point26_6{
-		X: dx + fixed.Int26_6(ps[0].X),
-		Y: dy - fixed.Int26_6(ps[0].Y),
+		X: dx + ps[0].X,
+		Y: dy - ps[0].Y,
 	}
 	others := []truetype.Point(nil)
 	if ps[0].Flags&0x01 != 0 {
 		others = ps[1:]
 	} else {
 		last := fixed.Point26_6{
-			X: dx + fixed.Int26_6(ps[len(ps)-1].X),
-			Y: dy - fixed.Int26_6(ps[len(ps)-1].Y),
+			X: dx + ps[len(ps)-1].X,
+			Y: dy - ps[len(ps)-1].Y,
 		}
 		if ps[len(ps)-1].Flags&0x01 != 0 {
 			start = last
@@ -124,8 +124,8 @@ func (c *Context) drawContour(ps []truetype.Point, dx, dy fixed.Int26_6) {
 	q0, on0 := start, true
 	for _, p := range others {
 		q := fixed.Point26_6{
-			X: dx + fixed.Int26_6(p.X),
-			Y: dy - fixed.Int26_6(p.Y),
+			X: dx + p.X,
+			Y: dy - p.Y,
 		}
 		on := p.Flags&0x01 != 0
 		if on {
@@ -165,10 +165,10 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 		return 0, nil, image.Point{}, err
 	}
 	// Calculate the integer-pixel bounds for the glyph.
-	xmin := int(fx+fixed.Int26_6(c.glyphBuf.B.XMin)) >> 6
-	ymin := int(fy-fixed.Int26_6(c.glyphBuf.B.YMax)) >> 6
-	xmax := int(fx+fixed.Int26_6(c.glyphBuf.B.XMax)+0x3f) >> 6
-	ymax := int(fy-fixed.Int26_6(c.glyphBuf.B.YMin)+0x3f) >> 6
+	xmin := int(fx+c.glyphBuf.B.XMin) >> 6
+	ymin := int(fy-c.glyphBuf.B.YMax) >> 6
+	xmax := int(fx+c.glyphBuf.B.XMax+0x3f) >> 6
+	ymax := int(fy-c.glyphBuf.B.YMin+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
 		return 0, nil, image.Point{}, errors.New("freetype: negative sized glyph")
 	}
@@ -177,8 +177,8 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 	// the pixel offsets, based on the font's FUnit metrics, that let a
 	// negative co-ordinate in TrueType space be non-negative in rasterizer
 	// space. xmin and ymin are typically <= 0.
-	fx += fixed.Int26_6(-xmin << 6)
-	fy += fixed.Int26_6(-ymin << 6)
+	fx -= fixed.Int26_6(xmin << 6)
+	fy -= fixed.Int26_6(ymin << 6)
 	// Rasterize the glyph's vectors.
 	c.r.Clear()
 	e0 := 0
@@ -188,7 +188,7 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 	}
 	a := image.NewAlpha(image.Rect(0, 0, xmax-xmin, ymax-ymin))
 	c.r.Rasterize(raster.NewAlphaSrcPainter(a))
-	return fixed.Int26_6(c.glyphBuf.AdvanceWidth), a, image.Point{xmin, ymin}, nil
+	return c.glyphBuf.AdvanceWidth, a, image.Point{xmin, ymin}, nil
 }
 
 // glyph returns the advance width, glyph mask and integer-pixel offset to
@@ -235,7 +235,7 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 	for _, rune := range s {
 		index := c.f.Index(rune)
 		if hasPrev {
-			kern := fixed.Int26_6(c.f.Kerning(c.scale, prev, index))
+			kern := c.f.Kerning(c.scale, prev, index)
 			if c.hinting != font.HintingNone {
 				kern = (kern + 32) &^ 63
 			}

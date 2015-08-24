@@ -98,7 +98,7 @@ func (a *face) Close() error { return nil }
 func (a *face) Kern(r0, r1 rune) fixed.Int26_6 {
 	i0 := a.f.Index(r0)
 	i1 := a.f.Index(r1)
-	kern := fixed.Int26_6(a.f.Kerning(a.scale, i0, i1))
+	kern := a.f.Kerning(a.scale, i0, i1)
 	if a.hinting != font.HintingNone {
 		kern = (kern + 32) &^ 63
 	}
@@ -222,16 +222,16 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 	// upwards. start is the same thing measured in fixed point units and
 	// positive Y going downwards, and offset by (dx, dy).
 	start := fixed.Point26_6{
-		X: dx + fixed.Int26_6(ps[0].X),
-		Y: dy - fixed.Int26_6(ps[0].Y),
+		X: dx + ps[0].X,
+		Y: dy - ps[0].Y,
 	}
 	var others []Point
 	if ps[0].Flags&0x01 != 0 {
 		others = ps[1:]
 	} else {
 		last := fixed.Point26_6{
-			X: dx + fixed.Int26_6(ps[len(ps)-1].X),
-			Y: dy - fixed.Int26_6(ps[len(ps)-1].Y),
+			X: dx + ps[len(ps)-1].X,
+			Y: dy - ps[len(ps)-1].Y,
 		}
 		if ps[len(ps)-1].Flags&0x01 != 0 {
 			start = last
@@ -248,8 +248,8 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 	q0, on0 := start, true
 	for _, p := range others {
 		q := fixed.Point26_6{
-			X: dx + fixed.Int26_6(p.X),
-			Y: dy - fixed.Int26_6(p.Y),
+			X: dx + p.X,
+			Y: dy - p.Y,
 		}
 		on := p.Flags&0x01 != 0
 		if on {
