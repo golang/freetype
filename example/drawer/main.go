@@ -115,7 +115,7 @@ func main() {
 	d := &font.Drawer{
 		Dst: rgba,
 		Src: fg,
-		Face: truetype.NewFace(f, truetype.Options{
+		Face: truetype.NewFace(f, &truetype.Options{
 			Size:    *size,
 			DPI:     *dpi,
 			Hinting: h,

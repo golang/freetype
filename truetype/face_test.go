@@ -35,7 +35,7 @@ func BenchmarkDrawString(b *testing.B) {
 	d := &font.Drawer{
 		Dst:  dst,
 		Src:  image.Black,
-		Face: NewFace(f, Options{}),
+		Face: NewFace(f, nil),
 	}
 	b.ReportAllocs()
 	b.ResetTimer()

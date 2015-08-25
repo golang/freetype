@@ -29,38 +29,116 @@ type Options struct {
 	//
 	// A zero value means to use no hinting.
 	Hinting font.Hinting
+
+	// SubPixelsX is the number of sub-pixel locations a glyph's dot is
+	// quantized to, in the horizontal direction. For example, a value of 8
+	// means that the dot is quantized to 1/8th of a pixel. This quantization
+	// only affects the glyph mask image, not its bounding box or advance
+	// width. A higher value gives a more faithful glyph image, but reduces the
+	// effectiveness of the glyph cache.
+	//
+	// It must be a power of 2, and be between 1 and 64 inclusive.
+	//
+	// A zero value means to use 4 sub-pixel locations.
+	SubPixelsX int
+
+	// SubPixelsY is the number of sub-pixel locations a glyph's dot is
+	// quantized to, in the vertical direction. For example, a value of 8
+	// means that the dot is quantized to 1/8th of a pixel. This quantization
+	// only affects the glyph mask image, not its bounding box or advance
+	// width. A higher value gives a more faithful glyph image, but reduces the
+	// effectiveness of the glyph cache.
+	//
+	// It must be a power of 2, and be between 1 and 64 inclusive.
+	//
+	// A zero value means to use 1 sub-pixel location.
+	SubPixelsY int
 }
 
 func (o *Options) size() float64 {
-	if o.Size > 0 {
+	if o != nil && o.Size > 0 {
 		return o.Size
 	}
 	return 12
 }
 
 func (o *Options) dpi() float64 {
-	if o.DPI > 0 {
+	if o != nil && o.DPI > 0 {
 		return o.DPI
 	}
 	return 72
 }
 
 func (o *Options) hinting() font.Hinting {
-	switch o.Hinting {
-	case font.HintingVertical, font.HintingFull:
-		// TODO: support vertical hinting.
-		return font.HintingFull
+	if o != nil {
+		switch o.Hinting {
+		case font.HintingVertical, font.HintingFull:
+			// TODO: support vertical hinting.
+			return font.HintingFull
+		}
 	}
 	return font.HintingNone
 }
 
+func (o *Options) subPixelsX() (halfQuantum, mask fixed.Int26_6) {
+	if o != nil {
+		switch o.SubPixelsX {
+		case 1, 2, 4, 8, 16, 32, 64:
+			return subPixels(o.SubPixelsX)
+		}
+	}
+	// This default value of 4 isn't based on anything scientific, merely as
+	// small a number as possible that looks almost as good as no quantization,
+	// or returning subPixels(64).
+	return subPixels(4)
+}
+
+func (o *Options) subPixelsY() (halfQuantum, mask fixed.Int26_6) {
+	if o != nil {
+		switch o.SubPixelsX {
+		case 1, 2, 4, 8, 16, 32, 64:
+			return subPixels(o.SubPixelsX)
+		}
+	}
+	// This default value of 1 isn't based on anything scientific, merely that
+	// vertical sub-pixel glyph rendering is pretty rare. Baseline locations
+	// can usually afford to snap to the pixel grid, so the vertical direction
+	// doesn't have the deal with the horizontal's fractional advance widths.
+	return subPixels(1)
+}
+
+// subPixels returns the bias and mask that leads to q quantized sub-pixel
+// locations per full pixel.
+//
+// For example, q == 4 leads to a bias of 8 and a mask of 0xfffffff0, or -16,
+// because we want to round fractions of fixed.Int26_6 as:
+//	-  0 to  7 rounds to 0.
+//	-  8 to 23 rounds to 16.
+//	- 24 to 39 rounds to 32.
+//	- 40 to 55 rounds to 48.
+//	- 56 to 63 rounds to 64.
+// which means to add 8 and then bitwise-and with -16, in two's complement
+// representation.
+//
+// When q ==  1, we want bias == 32 and mask == -64.
+// When q ==  2, we want bias == 16 and mask == -32.
+// When q ==  4, we want bias ==  8 and mask == -16.
+// ...
+// When q == 64, we want bias ==  0 and mask ==  -1. (The no-op case).
+// The pattern is clear.
+func subPixels(q int) (bias, mask fixed.Int26_6) {
+	return 32 / fixed.Int26_6(q), -64 / fixed.Int26_6(q)
+}
+
 // NewFace returns a new font.Face for the given Font.
-func NewFace(f *Font, opts Options) font.Face {
+func NewFace(f *Font, opts *Options) font.Face {
 	a := &face{
 		f:       f,
 		hinting: opts.hinting(),
 		scale:   fixed.Int26_6(0.5 + (opts.size() * opts.dpi() * 64 / 72)),
 	}
+	a.subPixelBiasX, a.subPixelMaskX = opts.subPixelsX()
+	a.subPixelBiasY, a.subPixelMaskY = opts.subPixelsY()
 
 	// Set the rasterizer's bounds to be big enough to handle the largest glyph.
 	b := f.Bounds(a.scale)
@@ -78,15 +156,19 @@ func NewFace(f *Font, opts Options) font.Face {
 }
 
 type face struct {
-	f        *Font
-	hinting  font.Hinting
-	scale    fixed.Int26_6
-	mask     *image.Alpha
-	r        raster.Rasterizer
-	p        raster.Painter
-	maxw     int
-	maxh     int
-	glyphBuf GlyphBuf
+	f             *Font
+	hinting       font.Hinting
+	scale         fixed.Int26_6
+	subPixelBiasX fixed.Int26_6
+	subPixelMaskX fixed.Int26_6
+	subPixelBiasY fixed.Int26_6
+	subPixelMaskY fixed.Int26_6
+	mask          *image.Alpha
+	r             raster.Rasterizer
+	p             raster.Painter
+	maxw          int
+	maxh          int
+	glyphBuf      GlyphBuf
 
 	// TODO: clip rectangle?
 }
@@ -109,9 +191,13 @@ func (a *face) Kern(r0, r1 rune) fixed.Int26_6 {
 func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	newDot fixed.Point26_6, dr image.Rectangle, mask image.Image, maskp image.Point, ok bool) {
 
-	// Split p.X and p.Y into their integer and fractional parts.
-	ix, fx := int(dot.X>>6), dot.X&0x3f
-	iy, fy := int(dot.Y>>6), dot.Y&0x3f
+	// Quantize to the sub-pixel granularity.
+	dotX := (dot.X + a.subPixelBiasX) & a.subPixelMaskX
+	dotY := (dot.Y + a.subPixelBiasY) & a.subPixelMaskY
+
+	// Split the coordinates into their integer and fractional parts.
+	ix, fx := int(dotX>>6), dotX&0x3f
+	iy, fy := int(dotY>>6), dotY&0x3f
 
 	advanceWidth, offset, gw, gh, ok := a.rasterize(a.f.Index(r), fx, fy)
 	if !ok {
