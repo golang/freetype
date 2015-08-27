@@ -13,6 +13,10 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+func powerOf2(i int) bool {
+	return i != 0 && (i&(i-1)) == 0
+}
+
 // Options are optional arguments to NewFace.
 type Options struct {
 	// Size is the font size in points, as in "a 10 point font size".
@@ -30,6 +34,14 @@ type Options struct {
 	// A zero value means to use no hinting.
 	Hinting font.Hinting
 
+	// GlyphCacheEntries is the number of entries in the glyph mask image
+	// cache.
+	//
+	// If non-zero, it must be a power of 2.
+	//
+	// A zero value means to use 512 entries.
+	GlyphCacheEntries int
+
 	// SubPixelsX is the number of sub-pixel locations a glyph's dot is
 	// quantized to, in the horizontal direction. For example, a value of 8
 	// means that the dot is quantized to 1/8th of a pixel. This quantization
@@ -37,7 +49,7 @@ type Options struct {
 	// width. A higher value gives a more faithful glyph image, but reduces the
 	// effectiveness of the glyph cache.
 	//
-	// It must be a power of 2, and be between 1 and 64 inclusive.
+	// If non-zero, it must be a power of 2, and be between 1 and 64 inclusive.
 	//
 	// A zero value means to use 4 sub-pixel locations.
 	SubPixelsX int
@@ -49,7 +61,7 @@ type Options struct {
 	// width. A higher value gives a more faithful glyph image, but reduces the
 	// effectiveness of the glyph cache.
 	//
-	// It must be a power of 2, and be between 1 and 64 inclusive.
+	// If non-zero, it must be a power of 2, and be between 1 and 64 inclusive.
 	//
 	// A zero value means to use 1 sub-pixel location.
 	SubPixelsY int
@@ -80,7 +92,16 @@ func (o *Options) hinting() font.Hinting {
 	return font.HintingNone
 }
 
-func (o *Options) subPixelsX() (halfQuantum, mask fixed.Int26_6) {
+func (o *Options) glyphCacheEntries() int {
+	if o != nil && powerOf2(o.GlyphCacheEntries) {
+		return o.GlyphCacheEntries
+	}
+	// 512 is 128 * 4 * 1, which lets us cache 128 glyphs at 4 * 1 subpixel
+	// locations in the X and Y direction.
+	return 512
+}
+
+func (o *Options) subPixelsX() (value uint32, halfQuantum, mask fixed.Int26_6) {
 	if o != nil {
 		switch o.SubPixelsX {
 		case 1, 2, 4, 8, 16, 32, 64:
@@ -93,7 +114,7 @@ func (o *Options) subPixelsX() (halfQuantum, mask fixed.Int26_6) {
 	return subPixels(4)
 }
 
-func (o *Options) subPixelsY() (halfQuantum, mask fixed.Int26_6) {
+func (o *Options) subPixelsY() (value uint32, halfQuantum, mask fixed.Int26_6) {
 	if o != nil {
 		switch o.SubPixelsX {
 		case 1, 2, 4, 8, 16, 32, 64:
@@ -107,8 +128,8 @@ func (o *Options) subPixelsY() (halfQuantum, mask fixed.Int26_6) {
 	return subPixels(1)
 }
 
-// subPixels returns the bias and mask that leads to q quantized sub-pixel
-// locations per full pixel.
+// subPixels returns q and the bias and mask that leads to q quantized
+// sub-pixel locations per full pixel.
 //
 // For example, q == 4 leads to a bias of 8 and a mask of 0xfffffff0, or -16,
 // because we want to round fractions of fixed.Int26_6 as:
@@ -126,8 +147,26 @@ func (o *Options) subPixelsY() (halfQuantum, mask fixed.Int26_6) {
 // ...
 // When q == 64, we want bias ==  0 and mask ==  -1. (The no-op case).
 // The pattern is clear.
-func subPixels(q int) (bias, mask fixed.Int26_6) {
-	return 32 / fixed.Int26_6(q), -64 / fixed.Int26_6(q)
+func subPixels(q int) (value uint32, bias, mask fixed.Int26_6) {
+	return uint32(q), 32 / fixed.Int26_6(q), -64 / fixed.Int26_6(q)
+}
+
+// cacheEntry caches the arguments and return values of rasterize.
+type cacheEntry struct {
+	key cacheKey
+	val cacheVal
+}
+
+type cacheKey struct {
+	index  Index
+	fx, fy uint8
+}
+
+type cacheVal struct {
+	advanceWidth fixed.Int26_6
+	offset       image.Point
+	gw           int
+	gh           int
 }
 
 // NewFace returns a new font.Face for the given Font.
@@ -136,9 +175,16 @@ func NewFace(f *Font, opts *Options) font.Face {
 		f:       f,
 		hinting: opts.hinting(),
 		scale:   fixed.Int26_6(0.5 + (opts.size() * opts.dpi() * 64 / 72)),
+		cache:   make([]cacheEntry, opts.glyphCacheEntries()),
 	}
-	a.subPixelBiasX, a.subPixelMaskX = opts.subPixelsX()
-	a.subPixelBiasY, a.subPixelMaskY = opts.subPixelsY()
+	a.subPixelX, a.subPixelBiasX, a.subPixelMaskX = opts.subPixelsX()
+	a.subPixelY, a.subPixelBiasY, a.subPixelMaskY = opts.subPixelsY()
+
+	// Fill the cache with invalid entries. Valid cache entries have fx and fy
+	// in the range [0, 64).
+	for i := range a.cache {
+		a.cache[i].key.fy = 0xff
+	}
 
 	// Set the rasterizer's bounds to be big enough to handle the largest glyph.
 	b := f.Bounds(a.scale)
@@ -148,9 +194,9 @@ func NewFace(f *Font, opts *Options) font.Face {
 	ymax := -int(b.YMin-63) >> 6
 	a.maxw = xmax - xmin
 	a.maxh = ymax - ymin
-	a.mask = image.NewAlpha(image.Rect(0, 0, a.maxw, a.maxh))
+	a.masks = image.NewAlpha(image.Rect(0, 0, a.maxw, a.maxh*len(a.cache)))
 	a.r.SetBounds(a.maxw, a.maxh)
-	a.p = raster.NewAlphaSrcPainter(a.mask)
+	a.p = facePainter{a}
 
 	return a
 }
@@ -159,13 +205,17 @@ type face struct {
 	f             *Font
 	hinting       font.Hinting
 	scale         fixed.Int26_6
+	subPixelX     uint32
 	subPixelBiasX fixed.Int26_6
 	subPixelMaskX fixed.Int26_6
+	subPixelY     uint32
 	subPixelBiasY fixed.Int26_6
 	subPixelMaskY fixed.Int26_6
-	mask          *image.Alpha
+	masks         *image.Alpha
+	cache         []cacheEntry
 	r             raster.Rasterizer
 	p             raster.Painter
+	paintOffset   int
 	maxw          int
 	maxh          int
 	glyphBuf      GlyphBuf
@@ -199,23 +249,42 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	ix, fx := int(dotX>>6), dotX&0x3f
 	iy, fy := int(dotY>>6), dotY&0x3f
 
-	advanceWidth, offset, gw, gh, ok := a.rasterize(a.f.Index(r), fx, fy)
-	if !ok {
-		return fixed.Point26_6{}, image.Rectangle{}, nil, image.Point{}, false
+	index := a.f.Index(r)
+	cIndex := uint32(index)
+	cIndex = cIndex*a.subPixelX - uint32(fx/a.subPixelMaskX)
+	cIndex = cIndex*a.subPixelY - uint32(fy/a.subPixelMaskY)
+	cIndex &= uint32(len(a.cache) - 1)
+	a.paintOffset = a.maxh * int(cIndex)
+	k := cacheKey{
+		index: index,
+		fx:    uint8(fx),
+		fy:    uint8(fy),
 	}
+	var v cacheVal
+	if a.cache[cIndex].key != k {
+		var ok bool
+		v, ok = a.rasterize(index, fx, fy)
+		if !ok {
+			return fixed.Point26_6{}, image.Rectangle{}, nil, image.Point{}, false
+		}
+		a.cache[cIndex] = cacheEntry{k, v}
+	} else {
+		v = a.cache[cIndex].val
+	}
+
 	newDot = fixed.Point26_6{
-		X: dot.X + advanceWidth,
+		X: dot.X + v.advanceWidth,
 		Y: dot.Y,
 	}
 	dr.Min = image.Point{
-		X: ix + offset.X,
-		Y: iy + offset.Y,
+		X: ix + v.offset.X,
+		Y: iy + v.offset.Y,
 	}
 	dr.Max = image.Point{
-		X: dr.Min.X + gw,
-		Y: dr.Min.Y + gh,
+		X: dr.Min.X + v.gw,
+		Y: dr.Min.Y + v.gh,
 	}
-	return newDot, dr, a.mask, image.Point{}, true
+	return newDot, dr, a.masks, image.Point{Y: a.paintOffset}, true
 }
 
 func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.Int26_6, ok bool) {
@@ -252,11 +321,9 @@ func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
 // the width and height of the given glyph at the given sub-pixel offsets.
 //
 // The 26.6 fixed point arguments fx and fy must be in the range [0, 1).
-func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
-	advanceWidth fixed.Int26_6, offset image.Point, gw int, gh int, ok bool) {
-
+func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v cacheVal, ok bool) {
 	if err := a.glyphBuf.Load(a.f, a.scale, index, a.hinting); err != nil {
-		return 0, image.Point{}, 0, 0, false
+		return cacheVal{}, false
 	}
 	// Calculate the integer-pixel bounds for the glyph.
 	xmin := int(fx+a.glyphBuf.B.XMin) >> 6
@@ -264,7 +331,7 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 	xmax := int(fx+a.glyphBuf.B.XMax+0x3f) >> 6
 	ymax := int(fy-a.glyphBuf.B.YMin+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
-		return 0, image.Point{}, 0, 0, false
+		return cacheVal{}, false
 	}
 	// A TrueType's glyph's nodes can have negative co-ordinates, but the
 	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin are
@@ -275,14 +342,20 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (
 	fy -= fixed.Int26_6(ymin << 6)
 	// Rasterize the glyph's vectors.
 	a.r.Clear()
-	clear(a.mask.Pix)
+	pixOffset := a.paintOffset * a.maxw
+	clear(a.masks.Pix[pixOffset : pixOffset+a.maxw*a.maxh])
 	e0 := 0
 	for _, e1 := range a.glyphBuf.End {
 		a.drawContour(a.glyphBuf.Point[e0:e1], fx, fy)
 		e0 = e1
 	}
 	a.r.Rasterize(a.p)
-	return a.glyphBuf.AdvanceWidth, image.Point{xmin, ymin}, xmax - xmin, ymax - ymin, true
+	return cacheVal{
+		a.glyphBuf.AdvanceWidth,
+		image.Point{xmin, ymin},
+		xmax - xmin,
+		ymax - ymin,
+	}, true
 }
 
 func clear(pix []byte) {
@@ -362,5 +435,42 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 		a.r.Add1(start)
 	} else {
 		a.r.Add2(q0, start)
+	}
+}
+
+// facePainter is like a raster.AlphaSrcPainter, with an additional Y offset
+// (face.paintOffset) to the painted spans.
+type facePainter struct {
+	a *face
+}
+
+func (p facePainter) Paint(ss []raster.Span, done bool) {
+	m := p.a.masks
+	b := m.Bounds()
+	b.Min.Y = p.a.paintOffset
+	b.Max.Y = p.a.paintOffset + p.a.maxh
+	for _, s := range ss {
+		s.Y += p.a.paintOffset
+		if s.Y < b.Min.Y {
+			continue
+		}
+		if s.Y >= b.Max.Y {
+			return
+		}
+		if s.X0 < b.Min.X {
+			s.X0 = b.Min.X
+		}
+		if s.X1 > b.Max.X {
+			s.X1 = b.Max.X
+		}
+		if s.X0 >= s.X1 {
+			continue
+		}
+		base := (s.Y-m.Rect.Min.Y)*m.Stride - m.Rect.Min.X
+		p := m.Pix[base+s.X0 : base+s.X1]
+		color := uint8(s.A >> 24)
+		for i := range p {
+			p[i] = color
+		}
 	}
 }
