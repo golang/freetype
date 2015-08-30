@@ -31,14 +31,14 @@ func printGlyph(g *truetype.GlyphBuf) {
 	printBounds(g.Bounds)
 	fmt.Print("Points:\n---\n")
 	e := 0
-	for i, p := range g.Point {
+	for i, p := range g.Points {
 		fmt.Printf("%4d, %4d", p.X, p.Y)
 		if p.Flags&0x01 != 0 {
 			fmt.Print("  on\n")
 		} else {
 			fmt.Print("  off\n")
 		}
-		if i+1 == int(g.End[e]) {
+		if i+1 == int(g.Ends[e]) {
 			fmt.Print("---\n")
 			e++
 		}

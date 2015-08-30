@@ -182,8 +182,8 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 	// Rasterize the glyph's vectors.
 	c.r.Clear()
 	e0 := 0
-	for _, e1 := range c.glyphBuf.End {
-		c.drawContour(c.glyphBuf.Point[e0:e1], fx, fy)
+	for _, e1 := range c.glyphBuf.Ends {
+		c.drawContour(c.glyphBuf.Points[e0:e1], fx, fy)
 		e0 = e1
 	}
 	a := image.NewAlpha(image.Rect(0, 0, xmax-xmin, ymax-ymin))

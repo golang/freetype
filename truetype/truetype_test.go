@@ -83,12 +83,12 @@ func TestParse(t *testing.T) {
 	}
 	g0 := &GlyphBuf{
 		Bounds: g.Bounds,
-		Point:  g.Point,
-		End:    g.End,
+		Points: g.Points,
+		Ends:   g.Ends,
 	}
 	g1 := &GlyphBuf{
 		Bounds: mkBounds(19, 0, 1342, 1480),
-		Point: []Point{
+		Points: []Point{
 			{19, 0, 51},
 			{581, 1480, 1},
 			{789, 1480, 51},
@@ -101,7 +101,7 @@ func TestParse(t *testing.T) {
 			{904, 566, 33},
 			{667, 1200, 3},
 		},
-		End: []int{8, 11},
+		Ends: []int{8, 11},
 	}
 	if got, want := fmt.Sprint(g0), fmt.Sprint(g1); got != want {
 		t.Errorf("GlyphBuf:\ngot  %v\nwant %v", got, want)
@@ -341,7 +341,7 @@ func testScaling(t *testing.T, h font.Hinting) {
 			got := scalingTestData{
 				advanceWidth: glyphBuf.AdvanceWidth,
 				bounds:       glyphBuf.Bounds,
-				points:       glyphBuf.Point,
+				points:       glyphBuf.Points,
 			}
 
 			if got.advanceWidth != want.advanceWidth {

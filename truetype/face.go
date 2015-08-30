@@ -345,8 +345,8 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v cacheVal, ok bool
 	pixOffset := a.paintOffset * a.maxw
 	clear(a.masks.Pix[pixOffset : pixOffset+a.maxw*a.maxh])
 	e0 := 0
-	for _, e1 := range a.glyphBuf.End {
-		a.drawContour(a.glyphBuf.Point[e0:e1], fx, fy)
+	for _, e1 := range a.glyphBuf.Ends {
+		a.drawContour(a.glyphBuf.Points[e0:e1], fx, fy)
 		e0 = e1
 	}
 	a.r.Rasterize(a.p)
