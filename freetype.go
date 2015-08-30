@@ -60,7 +60,7 @@ func Pt(x, y int) fixed.Point26_6 {
 type Context struct {
 	r        *raster.Rasterizer
 	f        *truetype.Font
-	glyphBuf *truetype.GlyphBuf
+	glyphBuf truetype.GlyphBuf
 	// clip is the clip rectangle for drawing.
 	clip image.Rectangle
 	// dst and src are the destination and source images for drawing.
@@ -334,7 +334,6 @@ func (c *Context) SetClip(clip image.Rectangle) {
 func NewContext() *Context {
 	return &Context{
 		r:        raster.NewRasterizer(0, 0),
-		glyphBuf: truetype.NewGlyphBuf(),
 		fontSize: 12,
 		dpi:      72,
 		scale:    12 << 6,

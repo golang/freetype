@@ -515,13 +515,3 @@ func (g *GlyphBuf) addPhantomsAndScale(np0, np1 int, simple, adjust bool) {
 	p = &g.Point[len(g.Point)-1]
 	p.Y = (p.Y + 32) &^ 63
 }
-
-// TODO: is this necessary? The zero-valued GlyphBuf is perfectly usable.
-
-// NewGlyphBuf returns a newly allocated GlyphBuf.
-func NewGlyphBuf() *GlyphBuf {
-	return &GlyphBuf{
-		Point: make([]Point, 0, 256),
-		End:   make([]int, 0, 32),
-	}
-}

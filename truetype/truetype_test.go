@@ -63,7 +63,7 @@ func TestParse(t *testing.T) {
 		t.Errorf("Kern: got %v, want %v", got, want)
 	}
 
-	g := NewGlyphBuf()
+	g := &GlyphBuf{}
 	err = g.Load(f, fupe, i0, font.HintingNone)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -319,7 +319,7 @@ func testScaling(t *testing.T, h font.Hinting) {
 			continue
 		}
 
-		glyphBuf := NewGlyphBuf()
+		glyphBuf := &GlyphBuf{}
 		for i, want := range wants {
 			if err = glyphBuf.Load(f, fixed.I(tc.size), Index(i), h); err != nil {
 				t.Errorf("%s: glyph #%d: Load: %v", tc.name, i, err)
