@@ -26,8 +26,8 @@ type Point struct {
 type GlyphBuf struct {
 	// AdvanceWidth is the glyph's advance width.
 	AdvanceWidth fixed.Int26_6
-	// B is the glyph's bounding box.
-	B Bounds
+	// Bounds is the glyph's bounding box.
+	Bounds fixed.Rectangle26_6
 	// Point contains all Points from all contours of the glyph. If
 	// hinting was used to load a glyph then Unhinted contains those
 	// Points before they were hinted, and InFontUnits contains those
@@ -131,40 +131,40 @@ func (g *GlyphBuf) Load(f *Font, scale fixed.Int26_6, i Index, h font.Hinting) e
 	}
 	g.AdvanceWidth = advanceWidth
 
-	// Set g.B to the 'control box', which is the bounding box of the Bézier
-	// curves' control points. This is easier to calculate, no smaller than
-	// and often equal to the tightest possible bounding box of the curves
+	// Set g.Bounds to the 'control box', which is the bounding box of the
+	// Bézier curves' control points. This is easier to calculate, no smaller
+	// than and often equal to the tightest possible bounding box of the curves
 	// themselves. This approach is what C Freetype does. We can't just scale
 	// the nominal bounding box in the glyf data as the hinting process and
 	// phantom point adjustment may move points outside of that box.
 	if len(g.Point) == 0 {
-		g.B = Bounds{}
+		g.Bounds = fixed.Rectangle26_6{}
 	} else {
 		p := g.Point[0]
-		g.B.XMin = p.X
-		g.B.XMax = p.X
-		g.B.YMin = p.Y
-		g.B.YMax = p.Y
+		g.Bounds.Min.X = p.X
+		g.Bounds.Max.X = p.X
+		g.Bounds.Min.Y = p.Y
+		g.Bounds.Max.Y = p.Y
 		for _, p := range g.Point[1:] {
-			if g.B.XMin > p.X {
-				g.B.XMin = p.X
-			} else if g.B.XMax < p.X {
-				g.B.XMax = p.X
+			if g.Bounds.Min.X > p.X {
+				g.Bounds.Min.X = p.X
+			} else if g.Bounds.Max.X < p.X {
+				g.Bounds.Max.X = p.X
 			}
-			if g.B.YMin > p.Y {
-				g.B.YMin = p.Y
-			} else if g.B.YMax < p.Y {
-				g.B.YMax = p.Y
+			if g.Bounds.Min.Y > p.Y {
+				g.Bounds.Min.Y = p.Y
+			} else if g.Bounds.Max.Y < p.Y {
+				g.Bounds.Max.Y = p.Y
 			}
 		}
 		// Snap the box to the grid, if hinting is on.
 		if h != font.HintingNone {
-			g.B.XMin &^= 63
-			g.B.YMin &^= 63
-			g.B.XMax += 63
-			g.B.XMax &^= 63
-			g.B.YMax += 63
-			g.B.YMax &^= 63
+			g.Bounds.Min.X &^= 63
+			g.Bounds.Min.Y &^= 63
+			g.Bounds.Max.X += 63
+			g.Bounds.Max.X &^= 63
+			g.Bounds.Max.Y += 63
+			g.Bounds.Max.Y &^= 63
 		}
 	}
 	return nil

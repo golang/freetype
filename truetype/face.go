@@ -188,10 +188,10 @@ func NewFace(f *Font, opts *Options) font.Face {
 
 	// Set the rasterizer's bounds to be big enough to handle the largest glyph.
 	b := f.Bounds(a.scale)
-	xmin := +int(b.XMin) >> 6
-	ymin := -int(b.YMax) >> 6
-	xmax := +int(b.XMax+63) >> 6
-	ymax := -int(b.YMin-63) >> 6
+	xmin := +int(b.Min.X) >> 6
+	ymin := -int(b.Max.Y) >> 6
+	xmax := +int(b.Max.X+63) >> 6
+	ymax := -int(b.Min.Y-63) >> 6
 	a.maxw = xmax - xmin
 	a.maxh = ymax - ymin
 	a.masks = image.NewAlpha(image.Rect(0, 0, a.maxw, a.maxh*len(a.cache)))
@@ -291,10 +291,10 @@ func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.In
 	if err := a.glyphBuf.Load(a.f, a.scale, a.f.Index(r), a.hinting); err != nil {
 		return fixed.Rectangle26_6{}, 0, false
 	}
-	xmin := +a.glyphBuf.B.XMin
-	ymin := -a.glyphBuf.B.YMax
-	xmax := +a.glyphBuf.B.XMax
-	ymax := -a.glyphBuf.B.YMin
+	xmin := +a.glyphBuf.Bounds.Min.X
+	ymin := -a.glyphBuf.Bounds.Max.Y
+	xmax := +a.glyphBuf.Bounds.Max.X
+	ymax := -a.glyphBuf.Bounds.Min.Y
 	if xmin > xmax || ymin > ymax {
 		return fixed.Rectangle26_6{}, 0, false
 	}
@@ -326,10 +326,10 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v cacheVal, ok bool
 		return cacheVal{}, false
 	}
 	// Calculate the integer-pixel bounds for the glyph.
-	xmin := int(fx+a.glyphBuf.B.XMin) >> 6
-	ymin := int(fy-a.glyphBuf.B.YMax) >> 6
-	xmax := int(fx+a.glyphBuf.B.XMax+0x3f) >> 6
-	ymax := int(fy-a.glyphBuf.B.YMin+0x3f) >> 6
+	xmin := int(fx+a.glyphBuf.Bounds.Min.X) >> 6
+	ymin := int(fy-a.glyphBuf.Bounds.Max.Y) >> 6
+	xmax := int(fx+a.glyphBuf.Bounds.Max.X+0x3f) >> 6
+	ymax := int(fy-a.glyphBuf.Bounds.Min.Y+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
 		return cacheVal{}, false
 	}

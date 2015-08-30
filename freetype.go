@@ -165,10 +165,10 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 		return 0, nil, image.Point{}, err
 	}
 	// Calculate the integer-pixel bounds for the glyph.
-	xmin := int(fx+c.glyphBuf.B.XMin) >> 6
-	ymin := int(fy-c.glyphBuf.B.YMax) >> 6
-	xmax := int(fx+c.glyphBuf.B.XMax+0x3f) >> 6
-	ymax := int(fy-c.glyphBuf.B.YMin+0x3f) >> 6
+	xmin := int(fx+c.glyphBuf.Bounds.Min.X) >> 6
+	ymin := int(fy-c.glyphBuf.Bounds.Max.Y) >> 6
+	xmax := int(fx+c.glyphBuf.Bounds.Max.X+0x3f) >> 6
+	ymax := int(fy-c.glyphBuf.Bounds.Min.Y+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
 		return 0, nil, image.Point{}, errors.New("freetype: negative sized glyph")
 	}
@@ -266,10 +266,10 @@ func (c *Context) recalc() {
 	} else {
 		// Set the rasterizer's bounds to be big enough to handle the largest glyph.
 		b := c.f.Bounds(c.scale)
-		xmin := +int(b.XMin) >> 6
-		ymin := -int(b.YMax) >> 6
-		xmax := +int(b.XMax+63) >> 6
-		ymax := -int(b.YMin-63) >> 6
+		xmin := +int(b.Min.X) >> 6
+		ymin := -int(b.Max.Y) >> 6
+		xmax := +int(b.Max.X+63) >> 6
+		ymax := -int(b.Min.Y-63) >> 6
 		c.r.SetBounds(xmax-xmin, ymax-ymin)
 	}
 	for i := range c.cache {

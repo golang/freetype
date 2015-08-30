@@ -23,12 +23,12 @@ import (
 
 var fontfile = flag.String("fontfile", "../../testdata/luxisr.ttf", "filename of the ttf font")
 
-func printBounds(b truetype.Bounds) {
-	fmt.Printf("XMin:%d YMin:%d XMax:%d YMax:%d\n", b.XMin, b.YMin, b.XMax, b.YMax)
+func printBounds(b fixed.Rectangle26_6) {
+	fmt.Printf("Min.X:%d Min.Y:%d Max.X:%d Max.Y:%d\n", b.Min.X, b.Min.Y, b.Max.X, b.Max.Y)
 }
 
 func printGlyph(g *truetype.GlyphBuf) {
-	printBounds(g.B)
+	printBounds(g.Bounds)
 	fmt.Print("Points:\n---\n")
 	e := 0
 	for i, p := range g.Point {

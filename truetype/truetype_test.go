@@ -33,6 +33,19 @@ func parseTestdataFont(name string) (f *Font, testdataIsOptional bool, err error
 	return f, false, nil
 }
 
+func mkBounds(minX, minY, maxX, maxY fixed.Int26_6) fixed.Rectangle26_6 {
+	return fixed.Rectangle26_6{
+		Min: fixed.Point26_6{
+			X: minX,
+			Y: minY,
+		},
+		Max: fixed.Point26_6{
+			X: maxX,
+			Y: maxY,
+		},
+	}
+}
+
 // TestParse tests that the luxisr.ttf metrics and glyphs are parsed correctly.
 // The numerical values can be manually verified by examining luxisr.ttx.
 func TestParse(t *testing.T) {
@@ -44,7 +57,7 @@ func TestParse(t *testing.T) {
 		t.Errorf("FUnitsPerEm: got %v, want %v", got, want)
 	}
 	fupe := fixed.Int26_6(f.FUnitsPerEm())
-	if got, want := f.Bounds(fupe), (Bounds{-441, -432, 2024, 2033}); got != want {
+	if got, want := f.Bounds(fupe), mkBounds(-441, -432, 2024, 2033); got != want {
 		t.Errorf("Bounds: got %v, want %v", got, want)
 	}
 
@@ -69,12 +82,12 @@ func TestParse(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	g0 := &GlyphBuf{
-		B:     g.B,
-		Point: g.Point,
-		End:   g.End,
+		Bounds: g.Bounds,
+		Point:  g.Point,
+		End:    g.End,
 	}
 	g1 := &GlyphBuf{
-		B: Bounds{19, 0, 1342, 1480},
+		Bounds: mkBounds(19, 0, 1342, 1480),
 		Point: []Point{
 			{19, 0, 51},
 			{581, 1480, 1},
@@ -200,7 +213,7 @@ func TestIndex(t *testing.T) {
 
 type scalingTestData struct {
 	advanceWidth fixed.Int26_6
-	bounds       Bounds
+	bounds       fixed.Rectangle26_6
 	points       []Point
 }
 
@@ -221,10 +234,10 @@ func scalingTestParse(line string) (ret scalingTestData) {
 	prefix, line := line[:i], line[i+1:]
 
 	prefix, ret.advanceWidth = next(prefix)
-	prefix, ret.bounds.XMin = next(prefix)
-	prefix, ret.bounds.YMin = next(prefix)
-	prefix, ret.bounds.XMax = next(prefix)
-	prefix, ret.bounds.YMax = next(prefix)
+	prefix, ret.bounds.Min.X = next(prefix)
+	prefix, ret.bounds.Min.Y = next(prefix)
+	prefix, ret.bounds.Max.X = next(prefix)
+	prefix, ret.bounds.Max.Y = next(prefix)
 
 	ret.points = make([]Point, 0, 1+strings.Count(line, ","))
 	for len(line) > 0 {
@@ -327,7 +340,7 @@ func testScaling(t *testing.T, h font.Hinting) {
 			}
 			got := scalingTestData{
 				advanceWidth: glyphBuf.AdvanceWidth,
-				bounds:       glyphBuf.B,
+				bounds:       glyphBuf.Bounds,
 				points:       glyphBuf.Point,
 			}
 

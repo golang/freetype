@@ -26,12 +26,6 @@ import (
 // An Index is a Font's index of a rune.
 type Index uint16
 
-// A Bounds holds the co-ordinate range of one or more glyphs.
-// The endpoints are inclusive.
-type Bounds struct {
-	XMin, YMin, XMax, YMax fixed.Int26_6
-}
-
 // An HMetric holds the horizontal metrics of a single glyph.
 type HMetric struct {
 	AdvanceWidth, LeftSideBearing fixed.Int26_6
@@ -108,7 +102,7 @@ type Font struct {
 	locaOffsetFormat        int
 	nGlyph, nHMetric, nKern int
 	fUnitsPerEm             int32
-	bounds                  Bounds
+	bounds                  fixed.Rectangle26_6
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
 }
@@ -227,10 +221,10 @@ func (f *Font) parseHead() error {
 		return FormatError(fmt.Sprintf("bad head length: %d", len(f.head)))
 	}
 	f.fUnitsPerEm = int32(u16(f.head, 18))
-	f.bounds.XMin = fixed.Int26_6(int16(u16(f.head, 36)))
-	f.bounds.YMin = fixed.Int26_6(int16(u16(f.head, 38)))
-	f.bounds.XMax = fixed.Int26_6(int16(u16(f.head, 40)))
-	f.bounds.YMax = fixed.Int26_6(int16(u16(f.head, 42)))
+	f.bounds.Min.X = fixed.Int26_6(int16(u16(f.head, 36)))
+	f.bounds.Min.Y = fixed.Int26_6(int16(u16(f.head, 38)))
+	f.bounds.Max.X = fixed.Int26_6(int16(u16(f.head, 40)))
+	f.bounds.Max.Y = fixed.Int26_6(int16(u16(f.head, 42)))
 	switch i := u16(f.head, 50); i {
 	case 0:
 		f.locaOffsetFormat = locaOffsetFormatShort
@@ -317,12 +311,12 @@ func (f *Font) scale(x fixed.Int26_6) fixed.Int26_6 {
 }
 
 // Bounds returns the union of a Font's glyphs' bounds.
-func (f *Font) Bounds(scale fixed.Int26_6) Bounds {
+func (f *Font) Bounds(scale fixed.Int26_6) fixed.Rectangle26_6 {
 	b := f.bounds
-	b.XMin = f.scale(scale * b.XMin)
-	b.YMin = f.scale(scale * b.YMin)
-	b.XMax = f.scale(scale * b.XMax)
-	b.YMax = f.scale(scale * b.YMax)
+	b.Min.X = f.scale(scale * b.Min.X)
+	b.Min.Y = f.scale(scale * b.Min.Y)
+	b.Max.X = f.scale(scale * b.Max.X)
+	b.Max.Y = f.scale(scale * b.Max.Y)
 	return b
 }
 
