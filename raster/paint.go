@@ -13,17 +13,17 @@ import (
 )
 
 // A Span is a horizontal segment of pixels with constant alpha. X0 is an
-// inclusive bound and X1 is exclusive, the same as for slices. A fully
-// opaque Span has A == 1<<32 - 1.
+// inclusive bound and X1 is exclusive, the same as for slices. A fully opaque
+// Span has Alpha == 0xffff.
 type Span struct {
 	Y, X0, X1 int
-	A         uint32
+	Alpha     uint32
 }
 
 // A Painter knows how to paint a batch of Spans. Rasterization may involve
-// Painting multiple batches, and done will be true for the final batch.
-// The Spans' Y values are monotonically increasing during a rasterization.
-// Paint may use all of ss as scratch space during the call.
+// Painting multiple batches, and done will be true for the final batch. The
+// Spans' Y values are monotonically increasing during a rasterization. Paint
+// may use all of ss as scratch space during the call.
 type Painter interface {
 	Paint(ss []Span, done bool)
 }
@@ -34,13 +34,13 @@ type PainterFunc func(ss []Span, done bool)
 // Paint just delegates the call to f.
 func (f PainterFunc) Paint(ss []Span, done bool) { f(ss, done) }
 
-// An AlphaOverPainter is a Painter that paints Spans onto an image.Alpha
-// using the Over Porter-Duff composition operator.
+// An AlphaOverPainter is a Painter that paints Spans onto a *image.Alpha using
+// the Over Porter-Duff composition operator.
 type AlphaOverPainter struct {
 	Image *image.Alpha
 }
 
-// Paint satisfies the Painter interface by painting ss onto an image.Alpha.
+// Paint satisfies the Painter interface.
 func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 	b := r.Image.Bounds()
 	for _, s := range ss {
@@ -61,7 +61,7 @@ func (r AlphaOverPainter) Paint(ss []Span, done bool) {
 		}
 		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
-		a := int(s.A >> 24)
+		a := int(s.Alpha >> 8)
 		for i, c := range p {
 			v := int(c)
 			p[i] = uint8((v*255 + (255-v)*a) / 255)
@@ -74,13 +74,13 @@ func NewAlphaOverPainter(m *image.Alpha) AlphaOverPainter {
 	return AlphaOverPainter{m}
 }
 
-// An AlphaSrcPainter is a Painter that paints Spans onto an image.Alpha
-// using the Src Porter-Duff composition operator.
+// An AlphaSrcPainter is a Painter that paints Spans onto a *image.Alpha using
+// the Src Porter-Duff composition operator.
 type AlphaSrcPainter struct {
 	Image *image.Alpha
 }
 
-// Paint satisfies the Painter interface by painting ss onto an image.Alpha.
+// Paint satisfies the Painter interface.
 func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
 	b := r.Image.Bounds()
 	for _, s := range ss {
@@ -101,7 +101,7 @@ func (r AlphaSrcPainter) Paint(ss []Span, done bool) {
 		}
 		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
 		p := r.Image.Pix[base+s.X0 : base+s.X1]
-		color := uint8(s.A >> 24)
+		color := uint8(s.Alpha >> 8)
 		for i := range p {
 			p[i] = color
 		}
@@ -113,16 +113,17 @@ func NewAlphaSrcPainter(m *image.Alpha) AlphaSrcPainter {
 	return AlphaSrcPainter{m}
 }
 
+// An RGBAPainter is a Painter that paints Spans onto a *image.RGBA.
 type RGBAPainter struct {
-	// The image to compose onto.
+	// Image is the image to compose onto.
 	Image *image.RGBA
-	// The Porter-Duff composition operator.
+	// Op is the Porter-Duff composition operator.
 	Op draw.Op
-	// The 16-bit color to paint the spans.
+	// cr, cg, cb and ca are the 16-bit color to paint the spans.
 	cr, cg, cb, ca uint32
 }
 
-// Paint satisfies the Painter interface by painting ss onto an image.RGBA.
+// Paint satisfies the Painter interface.
 func (r *RGBAPainter) Paint(ss []Span, done bool) {
 	b := r.Image.Bounds()
 	for _, s := range ss {
@@ -141,8 +142,8 @@ func (r *RGBAPainter) Paint(ss []Span, done bool) {
 		if s.X0 >= s.X1 {
 			continue
 		}
-		// This code is similar to drawGlyphOver in $GOROOT/src/pkg/image/draw/draw.go.
-		ma := s.A >> 16
+		// This code mimics drawGlyphOver in $GOROOT/src/image/draw/draw.go.
+		ma := s.Alpha
 		const m = 1<<16 - 1
 		i0 := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride + (s.X0-r.Image.Rect.Min.X)*4
 		i1 := i0 + (s.X1-s.X0)*4
@@ -192,7 +193,7 @@ func (m *MonochromePainter) Paint(ss []Span, done bool) {
 	// We compact the ss slice, discarding any Spans whose alpha quantizes to zero.
 	j := 0
 	for _, s := range ss {
-		if s.A >= 1<<31 {
+		if s.Alpha >= 0x8000 {
 			if m.y == s.Y && m.x1 == s.X0 {
 				m.x1 = s.X1
 			} else {
@@ -237,33 +238,28 @@ func NewMonochromePainter(p Painter) *MonochromePainter {
 // A GammaCorrectionPainter wraps another Painter, performing gamma-correction
 // on each Span's alpha value.
 type GammaCorrectionPainter struct {
-	// The wrapped Painter.
+	// Painter is the wrapped Painter.
 	Painter Painter
-	// Precomputed alpha values for linear interpolation, with fully opaque == 1<<16-1.
+	// a is the precomputed alpha values for linear interpolation, with fully
+	// opaque == 0xffff.
 	a [256]uint16
-	// Whether gamma correction is a no-op.
+	// gammaIsOne is whether gamma correction is a no-op.
 	gammaIsOne bool
 }
 
-// Paint delegates to the wrapped Painter after performing gamma-correction
-// on each Span.
+// Paint delegates to the wrapped Painter after performing gamma-correction on
+// each Span.
 func (g *GammaCorrectionPainter) Paint(ss []Span, done bool) {
 	if !g.gammaIsOne {
-		const (
-			M = 0x1010101 // 255*M == 1<<32-1
-			N = 0x8080    // N = M>>9, and N < 1<<16-1
-		)
+		const n = 0x101
 		for i, s := range ss {
-			if s.A == 0 || s.A == 1<<32-1 {
+			if s.Alpha == 0 || s.Alpha == 0xffff {
 				continue
 			}
-			p, q := s.A/M, (s.A%M)>>9
+			p, q := s.Alpha/n, s.Alpha%n
 			// The resultant alpha is a linear interpolation of g.a[p] and g.a[p+1].
-			a := uint32(g.a[p])*(N-q) + uint32(g.a[p+1])*q
-			a = (a + N/2) / N
-			// Convert the alpha from 16-bit (which is g.a's range) to 32-bit.
-			a |= a << 16
-			ss[i].A = a
+			a := uint32(g.a[p])*(n-q) + uint32(g.a[p+1])*q
+			ss[i].Alpha = (a + n/2) / n
 		}
 	}
 	g.Painter.Paint(ss, done)
@@ -271,11 +267,10 @@ func (g *GammaCorrectionPainter) Paint(ss []Span, done bool) {
 
 // SetGamma sets the gamma value.
 func (g *GammaCorrectionPainter) SetGamma(gamma float64) {
-	if gamma == 1.0 {
-		g.gammaIsOne = true
+	g.gammaIsOne = gamma == 1
+	if g.gammaIsOne {
 		return
 	}
-	g.gammaIsOne = false
 	for i := 0; i < 256; i++ {
 		a := float64(i) / 0xff
 		a = math.Pow(a, gamma)

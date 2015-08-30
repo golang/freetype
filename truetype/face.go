@@ -468,7 +468,7 @@ func (p facePainter) Paint(ss []raster.Span, done bool) {
 		}
 		base := (s.Y-m.Rect.Min.Y)*m.Stride - m.Rect.Min.X
 		p := m.Pix[base+s.X0 : base+s.X1]
-		color := uint8(s.A >> 24)
+		color := uint8(s.Alpha >> 8)
 		for i := range p {
 			p[i] = color
 		}

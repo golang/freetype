@@ -469,13 +469,13 @@ func (r *Rasterizer) AddStroke(q Path, width fixed.Int26_6, cr Capper, jr Joiner
 }
 
 // areaToAlpha converts an area value to a uint32 alpha value. A completely
-// filled pixel corresponds to an area of 64*64*2, and an alpha of 1<<32-1. The
+// filled pixel corresponds to an area of 64*64*2, and an alpha of 0xffff. The
 // conversion of area values greater than this depends on the winding rule:
 // even-odd or non-zero.
 func (r *Rasterizer) areaToAlpha(area int) uint32 {
 	// The C Freetype implementation (version 2.3.12) does "alpha := area>>1"
 	// without the +1. Round-to-nearest gives a more symmetric result than
-	// round-down. The C implementation also returns 8-bit alpha, not 32-bit
+	// round-down. The C implementation also returns 8-bit alpha, not 16-bit
 	// alpha.
 	a := (area + 1) >> 1
 	if a < 0 {
@@ -494,8 +494,9 @@ func (r *Rasterizer) areaToAlpha(area int) uint32 {
 			alpha = 0x0fff
 		}
 	}
-	alpha >>= 4
-	return alpha * 0x01010101
+	// alpha is now in the range [0x0000, 0x0fff]. Convert that 12-bit alpha to
+	// 16-bit alpha.
+	return alpha<<4 | alpha>>8
 }
 
 // Rasterize converts r's accumulated curves into Spans for p. The Spans passed
