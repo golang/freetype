@@ -151,39 +151,47 @@ func subPixels(q int) (value uint32, bias, mask fixed.Int26_6) {
 	return uint32(q), 32 / fixed.Int26_6(q), -64 / fixed.Int26_6(q)
 }
 
-// cacheEntry caches the arguments and return values of rasterize.
-type cacheEntry struct {
-	key cacheKey
-	val cacheVal
+// glyphCacheEntry caches the arguments and return values of rasterize.
+type glyphCacheEntry struct {
+	key glyphCacheKey
+	val glyphCacheVal
 }
 
-type cacheKey struct {
+type glyphCacheKey struct {
 	index  Index
 	fx, fy uint8
 }
 
-type cacheVal struct {
+type glyphCacheVal struct {
 	advanceWidth fixed.Int26_6
 	offset       image.Point
 	gw           int
 	gh           int
 }
 
+type indexCacheEntry struct {
+	rune  rune
+	index Index
+}
+
 // NewFace returns a new font.Face for the given Font.
 func NewFace(f *Font, opts *Options) font.Face {
 	a := &face{
-		f:       f,
-		hinting: opts.hinting(),
-		scale:   fixed.Int26_6(0.5 + (opts.size() * opts.dpi() * 64 / 72)),
-		cache:   make([]cacheEntry, opts.glyphCacheEntries()),
+		f:          f,
+		hinting:    opts.hinting(),
+		scale:      fixed.Int26_6(0.5 + (opts.size() * opts.dpi() * 64 / 72)),
+		glyphCache: make([]glyphCacheEntry, opts.glyphCacheEntries()),
 	}
 	a.subPixelX, a.subPixelBiasX, a.subPixelMaskX = opts.subPixelsX()
 	a.subPixelY, a.subPixelBiasY, a.subPixelMaskY = opts.subPixelsY()
 
-	// Fill the cache with invalid entries. Valid cache entries have fx and fy
-	// in the range [0, 64).
-	for i := range a.cache {
-		a.cache[i].key.fy = 0xff
+	// Fill the cache with invalid entries. Valid glyph cache entries have fx
+	// and fy in the range [0, 64). Valid index cache entries have rune >= 0.
+	for i := range a.glyphCache {
+		a.glyphCache[i].key.fy = 0xff
+	}
+	for i := range a.indexCache {
+		a.indexCache[i].rune = -1
 	}
 
 	// Set the rasterizer's bounds to be big enough to handle the largest glyph.
@@ -194,7 +202,7 @@ func NewFace(f *Font, opts *Options) font.Face {
 	ymax := -int(b.Min.Y-63) >> 6
 	a.maxw = xmax - xmin
 	a.maxh = ymax - ymin
-	a.masks = image.NewAlpha(image.Rect(0, 0, a.maxw, a.maxh*len(a.cache)))
+	a.masks = image.NewAlpha(image.Rect(0, 0, a.maxw, a.maxh*len(a.glyphCache)))
 	a.r.SetBounds(a.maxw, a.maxh)
 	a.p = facePainter{a}
 
@@ -212,15 +220,30 @@ type face struct {
 	subPixelBiasY fixed.Int26_6
 	subPixelMaskY fixed.Int26_6
 	masks         *image.Alpha
-	cache         []cacheEntry
+	glyphCache    []glyphCacheEntry
 	r             raster.Rasterizer
 	p             raster.Painter
 	paintOffset   int
 	maxw          int
 	maxh          int
 	glyphBuf      GlyphBuf
+	indexCache    [indexCacheLen]indexCacheEntry
 
 	// TODO: clip rectangle?
+}
+
+const indexCacheLen = 256
+
+func (a *face) index(r rune) Index {
+	const mask = indexCacheLen - 1
+	c := &a.indexCache[r&mask]
+	if c.rune == r {
+		return c.index
+	}
+	i := a.f.Index(r)
+	c.rune = r
+	c.index = i
+	return i
 }
 
 // Close satisfies the font.Face interface.
@@ -228,8 +251,8 @@ func (a *face) Close() error { return nil }
 
 // Kern satisfies the font.Face interface.
 func (a *face) Kern(r0, r1 rune) fixed.Int26_6 {
-	i0 := a.f.Index(r0)
-	i1 := a.f.Index(r1)
+	i0 := a.index(r0)
+	i1 := a.index(r1)
 	kern := a.f.Kern(a.scale, i0, i1)
 	if a.hinting != font.HintingNone {
 		kern = (kern + 32) &^ 63
@@ -249,27 +272,27 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	ix, fx := int(dotX>>6), dotX&0x3f
 	iy, fy := int(dotY>>6), dotY&0x3f
 
-	index := a.f.Index(r)
+	index := a.index(r)
 	cIndex := uint32(index)
 	cIndex = cIndex*a.subPixelX - uint32(fx/a.subPixelMaskX)
 	cIndex = cIndex*a.subPixelY - uint32(fy/a.subPixelMaskY)
-	cIndex &= uint32(len(a.cache) - 1)
+	cIndex &= uint32(len(a.glyphCache) - 1)
 	a.paintOffset = a.maxh * int(cIndex)
-	k := cacheKey{
+	k := glyphCacheKey{
 		index: index,
 		fx:    uint8(fx),
 		fy:    uint8(fy),
 	}
-	var v cacheVal
-	if a.cache[cIndex].key != k {
+	var v glyphCacheVal
+	if a.glyphCache[cIndex].key != k {
 		var ok bool
 		v, ok = a.rasterize(index, fx, fy)
 		if !ok {
 			return image.Rectangle{}, nil, image.Point{}, 0, false
 		}
-		a.cache[cIndex] = cacheEntry{k, v}
+		a.glyphCache[cIndex] = glyphCacheEntry{k, v}
 	} else {
-		v = a.cache[cIndex].val
+		v = a.glyphCache[cIndex].val
 	}
 
 	dr.Min = image.Point{
@@ -284,7 +307,7 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 }
 
 func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.Int26_6, ok bool) {
-	if err := a.glyphBuf.Load(a.f, a.scale, a.f.Index(r), a.hinting); err != nil {
+	if err := a.glyphBuf.Load(a.f, a.scale, a.index(r), a.hinting); err != nil {
 		return fixed.Rectangle26_6{}, 0, false
 	}
 	xmin := +a.glyphBuf.Bounds.Min.X
@@ -307,7 +330,7 @@ func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.In
 }
 
 func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
-	if err := a.glyphBuf.Load(a.f, a.scale, a.f.Index(r), a.hinting); err != nil {
+	if err := a.glyphBuf.Load(a.f, a.scale, a.index(r), a.hinting); err != nil {
 		return 0, false
 	}
 	return a.glyphBuf.AdvanceWidth, true
@@ -317,9 +340,9 @@ func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
 // the width and height of the given glyph at the given sub-pixel offsets.
 //
 // The 26.6 fixed point arguments fx and fy must be in the range [0, 1).
-func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v cacheVal, ok bool) {
+func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v glyphCacheVal, ok bool) {
 	if err := a.glyphBuf.Load(a.f, a.scale, index, a.hinting); err != nil {
-		return cacheVal{}, false
+		return glyphCacheVal{}, false
 	}
 	// Calculate the integer-pixel bounds for the glyph.
 	xmin := int(fx+a.glyphBuf.Bounds.Min.X) >> 6
@@ -327,7 +350,7 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v cacheVal, ok bool
 	xmax := int(fx+a.glyphBuf.Bounds.Max.X+0x3f) >> 6
 	ymax := int(fy-a.glyphBuf.Bounds.Min.Y+0x3f) >> 6
 	if xmin > xmax || ymin > ymax {
-		return cacheVal{}, false
+		return glyphCacheVal{}, false
 	}
 	// A TrueType's glyph's nodes can have negative co-ordinates, but the
 	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin are
@@ -346,7 +369,7 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v cacheVal, ok bool
 		e0 = e1
 	}
 	a.r.Rasterize(a.p)
-	return cacheVal{
+	return glyphCacheVal{
 		a.glyphBuf.AdvanceWidth,
 		image.Point{xmin, ymin},
 		xmax - xmin,
