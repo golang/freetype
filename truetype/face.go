@@ -239,7 +239,7 @@ func (a *face) Kern(r0, r1 rune) fixed.Int26_6 {
 
 // Glyph satisfies the font.Face interface.
 func (a *face) Glyph(dot fixed.Point26_6, r rune) (
-	newDot fixed.Point26_6, dr image.Rectangle, mask image.Image, maskp image.Point, ok bool) {
+	dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool) {
 
 	// Quantize to the sub-pixel granularity.
 	dotX := (dot.X + a.subPixelBiasX) & a.subPixelMaskX
@@ -265,17 +265,13 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 		var ok bool
 		v, ok = a.rasterize(index, fx, fy)
 		if !ok {
-			return fixed.Point26_6{}, image.Rectangle{}, nil, image.Point{}, false
+			return image.Rectangle{}, nil, image.Point{}, 0, false
 		}
 		a.cache[cIndex] = cacheEntry{k, v}
 	} else {
 		v = a.cache[cIndex].val
 	}
 
-	newDot = fixed.Point26_6{
-		X: dot.X + v.advanceWidth,
-		Y: dot.Y,
-	}
 	dr.Min = image.Point{
 		X: ix + v.offset.X,
 		Y: iy + v.offset.Y,
@@ -284,7 +280,7 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 		X: dr.Min.X + v.gw,
 		Y: dr.Min.Y + v.gh,
 	}
-	return newDot, dr, a.masks, image.Point{Y: a.paintOffset}, true
+	return dr, a.masks, image.Point{Y: a.paintOffset}, v.advanceWidth, true
 }
 
 func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.Int26_6, ok bool) {
