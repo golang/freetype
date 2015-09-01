@@ -89,11 +89,16 @@ type cm struct {
 	start, end, delta, offset uint32
 }
 
+// An nr holds a font's name, style
+type nr struct {
+	fontInfo [2]string
+}
+
 // A Font represents a Truetype font.
 type Font struct {
 	// Tables sliced from the TTF data. The different tables are documented
 	// at http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html
-	cmap, cvt, fpgm, glyf, hdmx, head, hhea, hmtx, kern, loca, maxp, os2, prep, vmtx []byte
+	cmap, cvt, fpgm, glyf, hdmx, head, hhea, hmtx, kern, loca, maxp, os2, prep, vmtx, name []byte
 
 	cmapIndexes []byte
 
@@ -105,6 +110,8 @@ type Font struct {
 	bounds                  fixed.Rectangle26_6
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
+	// First value from head table
+	nameRecord *nr
 }
 
 func (f *Font) parseCmap() error {
@@ -298,6 +305,62 @@ func (f *Font) parseMaxp() error {
 	f.maxFunctionDefs = u16(f.maxp, 20)
 	f.maxStackElements = u16(f.maxp, 24)
 	return nil
+}
+
+func (f *Font) parseName() error {
+	if len(f.name) < 18 {
+		return FormatError("name data too short")
+	}
+	if u16(f.name, 0) != 0 {
+		return FormatError(fmt.Sprintf("invalid format specifier: %d", u16(f.name, 0)))
+	}
+	numNames := int(u16(f.name, 2))
+	stringOffset := u16(f.name, 4)
+	font := &nr{}
+
+	for offset, i := 6, 0; i < numNames; i, offset = i+1, offset+12 {
+		nameID := u16(f.name, offset+6)
+		switch nameID {
+		case 1, 2:
+			/* Keeping these here in case they're requested later.
+
+			platformSpecificID, languageID,platformID := u16(f.name, offset+2), u16(f.name, offset+4),u16(f.name, offset)
+			*/
+			length, nameOffset := u16(f.name, offset+8), u16(f.name, offset+10)
+
+			// Assume a non-UTF-16 value
+			value := f.name[stringOffset+nameOffset : stringOffset+nameOffset+length]
+
+			// but just in case... if the first byte is 0, as in luxi's 13th nameRecord,
+			// assume UTF-16, try to parse it if its length is even
+			if value[0] == 0 && length&1 == 0 {
+				var err error
+				value, err = decodeUTF16(value)
+				if err != nil {
+					return err
+				}
+			}
+			// TODO: find a fail-safe method for determine if a byte slice or string is
+			// UTF-16 or not.
+			font.fontInfo[nameID-1] = string(value)
+		}
+
+		if font.fontInfo[0] != "" && font.fontInfo[1] != "" {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// Name returns the TrueType font's name
+func (f *Font) Name() string {
+	return f.nameRecord.fontInfo[0]
+}
+
+// Style returns the TrueType font's style
+func (f *Font) Style() string {
+	return f.nameRecord.fontInfo[1]
 }
 
 // scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
@@ -524,6 +587,8 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			f.prep, err = readTable(ttf, ttf[x+8:x+16])
 		case "vmtx":
 			f.vmtx, err = readTable(ttf, ttf[x+8:x+16])
+		case "name":
+			f.name, err = readTable(ttf, ttf[x+8:x+16])
 		}
 		if err != nil {
 			return
@@ -545,6 +610,10 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 	if err = f.parseHhea(); err != nil {
 		return
 	}
+	if err = f.parseName(); err != nil {
+		return
+	}
+
 	font = f
 	return
 }
