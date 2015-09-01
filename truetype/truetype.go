@@ -352,6 +352,7 @@ func (f *Font) parseName() error {
 		}
 
 		if font.fontInfo[0] != "" && font.fontInfo[1] != "" {
+			f.nameRecord = font
 			return nil
 		}
 	}
