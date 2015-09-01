@@ -18,9 +18,13 @@
 package truetype // import "github.com/golang/freetype/truetype"
 
 import (
+	"bytes"
 	"fmt"
+	"io/ioutil"
 
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 // An Index is a Font's index of a rune.
@@ -335,7 +339,9 @@ func (f *Font) parseName() error {
 			// assume UTF-16, try to parse it if its length is even
 			if value[0] == 0 && length&1 == 0 {
 				var err error
-				value, err = decodeUTF16(value)
+
+				enc := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
+				value, err = ioutil.ReadAll(transform.NewReader(bytes.NewReader(value), enc.NewDecoder()))
 				if err != nil {
 					return err
 				}
