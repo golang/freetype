@@ -23,7 +23,7 @@ import (
 	"os"
 
 	"github.com/golang/freetype"
-	"golang.org/x/exp/shiny/font"
+	"golang.org/x/image/font"
 )
 
 var (

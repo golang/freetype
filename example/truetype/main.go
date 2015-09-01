@@ -17,7 +17,7 @@ import (
 	"log"
 
 	"github.com/golang/freetype/truetype"
-	"golang.org/x/exp/shiny/font"
+	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
 
