@@ -211,6 +211,48 @@ func TestIndex(t *testing.T) {
 	}
 }
 
+func TestName(t *testing.T) {
+	testCases := map[string]string{
+		"luxisr": "Luxi Sans",
+	}
+
+	for name, want := range testCases {
+		f, testdataIsOptional, err := parseTestdataFont(name)
+		if err != nil {
+			if testdataIsOptional {
+				t.Log(err)
+			} else {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if got := f.Name(); got != want {
+			t.Errorf("%s: got %s, want %s", name, got, want)
+		}
+	}
+}
+
+func TestStyle(t *testing.T) {
+	testCases := map[string]string{
+		"luxisr": "Regular",
+	}
+
+	for name, want := range testCases {
+		f, testdataIsOptional, err := parseTestdataFont(name)
+		if err != nil {
+			if testdataIsOptional {
+				t.Log(err)
+			} else {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if got := f.Style(); got != want {
+			t.Errorf("%s: got %s, want %s", name, got, want)
+		}
+	}
+}
+
 type scalingTestData struct {
 	advanceWidth fixed.Int26_6
 	bounds       fixed.Rectangle26_6
