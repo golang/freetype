@@ -102,7 +102,7 @@ type nr struct {
 type Font struct {
 	// Tables sliced from the TTF data. The different tables are documented
 	// at http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html
-	cmap, cvt, fpgm, glyf, hdmx, head, hhea, hmtx, kern, loca, maxp, os2, prep, vmtx, name []byte
+	cmap, cvt, fpgm, glyf, hdmx, head, hhea, hmtx, kern, loca, maxp, name, os2, prep, vmtx []byte
 
 	cmapIndexes []byte
 
@@ -588,14 +588,14 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			f.loca, err = readTable(ttf, ttf[x+8:x+16])
 		case "maxp":
 			f.maxp, err = readTable(ttf, ttf[x+8:x+16])
+		case "name":
+			f.name, err = readTable(ttf, ttf[x+8:x+16])
 		case "OS/2":
 			f.os2, err = readTable(ttf, ttf[x+8:x+16])
 		case "prep":
 			f.prep, err = readTable(ttf, ttf[x+8:x+16])
 		case "vmtx":
 			f.vmtx, err = readTable(ttf, ttf[x+8:x+16])
-		case "name":
-			f.name, err = readTable(ttf, ttf[x+8:x+16])
 		}
 		if err != nil {
 			return
