@@ -20,11 +20,8 @@ package truetype // import "github.com/golang/freetype/truetype"
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 
 	"golang.org/x/image/math/fixed"
-	"golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
 )
 
 // An Index is a Font's index of a rune.
@@ -93,9 +90,9 @@ type cm struct {
 	start, end, delta, offset uint32
 }
 
-// An nr holds a font's name, style
-type nr struct {
-	fontInfo [2]string
+// nnameInfo holds a font's name and style.
+type nameInfo struct {
+	name, style string
 }
 
 // A Font represents a Truetype font.
@@ -114,8 +111,8 @@ type Font struct {
 	bounds                  fixed.Rectangle26_6
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
-	// First value from head table
-	nameRecord *nr
+	// First value from head table.
+	nameRecord nameInfo
 }
 
 func (f *Font) parseCmap() error {
@@ -312,62 +309,138 @@ func (f *Font) parseMaxp() error {
 }
 
 func (f *Font) parseName() error {
-	if len(f.name) < 18 {
-		return FormatError("name data too short")
+	if len(f.name) < 18 { // The name table is three uint16s + at least one Name Record.  Name Records are six uint16s.
+		return FormatError("name table too short")
 	}
-	if u16(f.name, 0) != 0 {
+	if u16(f.name, 0) != 0 { // The first uint16 in the name table should be set to 0, per the spec.
 		return FormatError(fmt.Sprintf("invalid format specifier: %d", u16(f.name, 0)))
 	}
-	numNames := int(u16(f.name, 2))
-	stringOffset := u16(f.name, 4)
-	font := &nr{}
+
+	numNames := int(u16(f.name, 2)) // The number of Name Records is the second uint16 in the name table.
+	stringOffset := u16(f.name, 4)  // And the offset marking the beginning of the character data is the third int16.
+
+	if len(f.name) < int(stringOffset) {
+		return FormatError("string offset is larger than the name table")
+	}
+
+	const ( // The platform IDs in the name table.
+		PLATFORM_UNICODE   = 0
+		PLATFORM_MACINTOSH = 1
+		PLATFORM_MICROSOFT = 3
+	)
+
+	const ( // Encoding IDs for the Microsoft platform.
+		MICROSOFT_SYMBOL_CS  = 1
+		MICROSOFT_UNICODE_CS = 2
+		MICROSOFT_UCS_4      = 10
+	)
+
+	// Keep track of which records contain the name and style information.
+	var foundUnicode, foundAppleEnglish, foundAppleRoman, foundMicrosoft, foundApple [2]int
+	foundMicrosoftEnglish := false
 
 	for offset, i := 6, 0; i < numNames; i, offset = i+1, offset+12 {
-		nameID := u16(f.name, offset+6)
+		platformID, encodingID, languageID, nameID := u16(f.name, offset), u16(f.name, offset+2), u16(f.name, offset+4), u16(f.name, offset+6)
+
 		switch nameID {
 		case 1, 2:
-			/* Keeping these here in case they're requested later.
-
-			platformSpecificID, languageID,platformID := u16(f.name, offset+2), u16(f.name, offset+4),u16(f.name, offset)
-			*/
-			length, nameOffset := u16(f.name, offset+8), u16(f.name, offset+10)
-
-			// Assume a non-UTF-16 value
-			value := f.name[stringOffset+nameOffset : stringOffset+nameOffset+length]
-
-			// but just in case... if the first byte is 0, as in luxi's 13th nameRecord,
-			// assume UTF-16, try to parse it if its length is even
-			if value[0] == 0 && length&1 == 0 {
-				var err error
-
-				enc := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
-				value, err = ioutil.ReadAll(transform.NewReader(bytes.NewReader(value), enc.NewDecoder()))
-				if err != nil {
-					return err
+			if u16(f.name, offset+8) == 0 { // Offset + 8 is the location of the string length.  If zero, skip it.
+				break
+			}
+			switch platformID {
+			case PLATFORM_UNICODE:
+				foundUnicode[nameID-1] = offset
+			case PLATFORM_MACINTOSH:
+				if languageID == 0 { // The language ID for English is zero.
+					foundAppleEnglish[nameID-1] = offset
+				} else if encodingID == 0 { // A zero encoding ID means Roman.
+					foundAppleRoman[nameID-1] = offset
+				}
+			case PLATFORM_MICROSOFT:
+				if foundMicrosoft[nameID-1] == 0 || (languageID&0x3FF) == 0x009 { // Prefer Microsoft fonts in English.
+					if encodingID == MICROSOFT_SYMBOL_CS || encodingID == MICROSOFT_UNICODE_CS || encodingID == MICROSOFT_UCS_4 {
+						foundMicrosoftEnglish = (languageID & 0x3FF) == 9
+						foundMicrosoft[nameID-1] = offset
+					}
 				}
 			}
-			// TODO: find a fail-safe method for determine if a byte slice or string is
-			// UTF-16 or not.
-			font.fontInfo[nameID-1] = string(value)
-		}
-
-		if font.fontInfo[0] != "" && font.fontInfo[1] != "" {
-			f.nameRecord = font
-			return nil
 		}
 	}
+
+	foundApple = foundAppleRoman
+	if foundAppleEnglish[0] > 0 {
+		foundApple = foundAppleEnglish
+	}
+
+	nameRecord := nameInfo{}
+	// Should we decode UTF-16 strings?
+	switch {
+	case foundMicrosoft[0] > 0 && !(foundApple[0] > 0 && !foundMicrosoftEnglish):
+		nameOffset, styleOffset := u16(f.name, foundMicrosoft[0]+10)+stringOffset, u16(f.name, foundMicrosoft[1]+10)+stringOffset
+		nameLength, styleLength := u16(f.name, foundMicrosoft[0]+8), u16(f.name, foundMicrosoft[1]+8)
+
+		nameRecord.name = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], true)
+		nameRecord.style = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], true)
+	case foundApple[0] > 0:
+		nameOffset, styleOffset := u16(f.name, foundApple[0]+10)+stringOffset, u16(f.name, foundApple[1]+10)+stringOffset
+		nameLength, styleLength := u16(f.name, foundApple[0]+8), u16(f.name, foundApple[1]+8)
+
+		nameRecord.name = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], false)
+		nameRecord.style = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], false)
+	case foundUnicode[0] > 0:
+		nameOffset, styleOffset := u16(f.name, foundUnicode[0]+10)+stringOffset, u16(f.name, foundUnicode[1]+10)+stringOffset
+		nameLength, styleLength := u16(f.name, foundUnicode[0]+8), u16(f.name, foundUnicode[1]+8)
+
+		nameRecord.name = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], true)
+		nameRecord.style = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], true)
+	}
+
+	f.nameRecord = nameRecord
 
 	return nil
 }
 
-// Name returns the TrueType font's name
-func (f *Font) Name() string {
-	return f.nameRecord.fontInfo[0]
+func (f *Font) nameEntryInASCII(b []byte, utf16 bool) string {
+	buf := &bytes.Buffer{}
+	if utf16 { // Equivalent to tt_name_ascii_from_utf16.
+		j := len(b)
+		if j&1 == 1 {
+			return ""
+		}
+
+		for i := 0; i < j; i += 2 {
+			el := u16(b, i)
+			if el == 0 {
+				continue
+			} else if el < 32 || el > 127 {
+				buf.WriteByte('?')
+			} else {
+				buf.WriteByte(byte(el))
+			}
+		}
+	} else { // Equivalent to tt_name_ascii_from_other.
+		for _, el := range b {
+			if el == 0 {
+				continue
+			} else if el < 32 || el > 127 {
+				buf.WriteByte('?')
+			} else {
+				buf.WriteByte(el)
+			}
+		}
+	}
+
+	return buf.String()
 }
 
-// Style returns the TrueType font's style
+// Name returns the font's name.
+func (f *Font) Name() string {
+	return f.nameRecord.name
+}
+
+// Style returns the font's style.
 func (f *Font) Style() string {
-	return f.nameRecord.fontInfo[1]
+	return f.nameRecord.style
 }
 
 // scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
