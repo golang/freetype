@@ -356,9 +356,9 @@ func (f *Font) parseName() error {
 					foundAppleRoman[nameID-1] = offset
 				}
 			case PLATFORM_MICROSOFT:
-				if foundMicrosoft[nameID-1] == 0 || (languageID&0x3FF) == 0x009 { // Prefer Microsoft fonts in English.
+				if foundMicrosoft[nameID-1] == 0 || languageID&0x3FF == 0x009 { // Prefer Microsoft fonts in English.
 					if encodingID == MICROSOFT_SYMBOL_CS || encodingID == MICROSOFT_UNICODE_CS || encodingID == MICROSOFT_UCS_4 {
-						foundMicrosoftEnglish = (languageID & 0x3FF) == 9
+						foundMicrosoftEnglish = languageID&0x3FF == 9
 						foundMicrosoft[nameID-1] = offset
 					}
 				}
