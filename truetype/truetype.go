@@ -722,9 +722,6 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 	if err = f.parseHhea(); err != nil {
 		return
 	}
-	if err = f.parseName(); err != nil {
-		return
-	}
 
 	font = f
 	return
