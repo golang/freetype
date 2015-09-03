@@ -214,6 +214,8 @@ func TestIndex(t *testing.T) {
 func TestName(t *testing.T) {
 	testCases := map[string]string{
 		"luxisr": "Luxi Sans",
+		"luximr": "Luxi Mono",
+		"luxirr": "Luxi Serif",
 	}
 
 	for name, want := range testCases {
@@ -227,7 +229,7 @@ func TestName(t *testing.T) {
 			continue
 		}
 		if got := f.Name(); got != want {
-			t.Errorf("%s: got %s, want %s", name, got, want)
+			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
 	}
 }
@@ -235,6 +237,8 @@ func TestName(t *testing.T) {
 func TestStyle(t *testing.T) {
 	testCases := map[string]string{
 		"luxisr": "Regular",
+		"luximr": "Regular",
+		"luxirr": "Regular",
 	}
 
 	for name, want := range testCases {
@@ -248,7 +252,7 @@ func TestStyle(t *testing.T) {
 			continue
 		}
 		if got := f.Style(); got != want {
-			t.Errorf("%s: got %s, want %s", name, got, want)
+			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
 	}
 }
