@@ -18,7 +18,6 @@
 package truetype // import "github.com/golang/freetype/truetype"
 
 import (
-	"bytes"
 	"fmt"
 
 	"golang.org/x/image/math/fixed"
@@ -401,7 +400,7 @@ func (f *Font) parseName() error {
 }
 
 func (f *Font) nameEntryInASCII(b []byte, utf16 bool) string {
-	buf := &bytes.Buffer{}
+	var buf []byte
 	if utf16 { // Equivalent to tt_name_ascii_from_utf16.
 		j := len(b)
 		if j&1 == 1 {
@@ -413,9 +412,9 @@ func (f *Font) nameEntryInASCII(b []byte, utf16 bool) string {
 			if el == 0 {
 				continue
 			} else if el < 32 || el > 127 {
-				buf.WriteByte('?')
+				buf = append(buf, '?')
 			} else {
-				buf.WriteByte(byte(el))
+				buf = append(buf, byte(el))
 			}
 		}
 	} else { // Equivalent to tt_name_ascii_from_other.
@@ -423,14 +422,14 @@ func (f *Font) nameEntryInASCII(b []byte, utf16 bool) string {
 			if el == 0 {
 				continue
 			} else if el < 32 || el > 127 {
-				buf.WriteByte('?')
+				buf = append(buf, '?')
 			} else {
-				buf.WriteByte(el)
+				buf = append(buf, el)
 			}
 		}
 	}
 
-	return buf.String()
+	return string(buf)
 }
 
 // Name returns the font's name.
