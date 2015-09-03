@@ -26,6 +26,38 @@ import (
 // An Index is a Font's index of a rune.
 type Index uint16
 
+// A NameID represents the Name Identifiers in the name table.
+type NameID uint16
+
+const (
+	NameIDCopyright NameID = iota
+	NameIDFontFamily
+	NameIDFontSubfamily
+	NameIDUniqueSubfamilyID
+	NameIDFontFullName
+	NameIDNameTableVersion
+	NameIDPostscriptName
+	NameIDTrademarkNotice
+	NameIDManufacturerName
+	NameIDDesignerName
+	NameIDFontDescription
+	NameIDFontVendorURL
+	NameIDFontDesignerURL
+	NameIDFontLicense
+	NameIDFontLicenseURL
+	NameIDReserved
+	NameIDPreferredFamily
+	NameIDPreferredSubfamily
+	NameIDCompatibleName
+	NameIDSampleText
+)
+
+// A Bounds holds the co-ordinate range of one or more glyphs.
+// The endpoints are inclusive.
+type Bounds struct {
+	XMin, YMin, XMax, YMax fixed.Int26_6
+}
+
 // An HMetric holds the horizontal metrics of a single glyph.
 type HMetric struct {
 	AdvanceWidth, LeftSideBearing fixed.Int26_6
@@ -91,7 +123,7 @@ type cm struct {
 
 // nnameInfo holds a font's name and style.
 type nameInfo struct {
-	name, style string
+	values [20]string
 }
 
 // A Font represents a Truetype font.
@@ -111,7 +143,7 @@ type Font struct {
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
 	// First value from head table.
-	nameRecord nameInfo
+	nameRecord *nameInfo
 }
 
 func (f *Font) parseCmap() error {
@@ -338,11 +370,13 @@ func (f *Font) parseName() error {
 	var foundUnicode, foundAppleEnglish, foundAppleRoman, foundMicrosoft, foundApple [2]int
 	foundMicrosoftEnglish := false
 
+	// Name Records begin at the fourth uint16 and are six uint16s long.
+	// Loop through them and keep track of records of interest.
 	for offset, i := 6, 0; i < numNames; i, offset = i+1, offset+12 {
-		platformID, encodingID, languageID, nameID := u16(f.name, offset), u16(f.name, offset+2), u16(f.name, offset+4), u16(f.name, offset+6)
+		platformID, encodingID, languageID, nameID := u16(f.name, offset), u16(f.name, offset+2), u16(f.name, offset+4), NameID(u16(f.name, offset+6))
 
 		switch nameID {
-		case 1, 2:
+		case NameIDFontFamily, NameIDFontSubfamily:
 			if u16(f.name, offset+8) == 0 { // Offset + 8 is the location of the string length.  If zero, skip it.
 				break
 			}
@@ -371,28 +405,23 @@ func (f *Font) parseName() error {
 		foundApple = foundAppleEnglish
 	}
 
-	nameRecord := nameInfo{}
-	// Should we decode UTF-16 strings?
+	var nameOffset, nameLength, styleOffset, styleLength uint16
+	nameRecord := &nameInfo{}
+	// Retrieve ASCII version of the values.
 	switch {
 	case foundMicrosoft[0] > 0 && !(foundApple[0] > 0 && !foundMicrosoftEnglish):
-		nameOffset, styleOffset := u16(f.name, foundMicrosoft[0]+10)+stringOffset, u16(f.name, foundMicrosoft[1]+10)+stringOffset
-		nameLength, styleLength := u16(f.name, foundMicrosoft[0]+8), u16(f.name, foundMicrosoft[1]+8)
-
-		nameRecord.name = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], true)
-		nameRecord.style = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], true)
+		nameOffset, styleOffset = u16(f.name, foundMicrosoft[0]+10)+stringOffset, u16(f.name, foundMicrosoft[1]+10)+stringOffset
+		nameLength, styleLength = u16(f.name, foundMicrosoft[0]+8), u16(f.name, foundMicrosoft[1]+8)
 	case foundApple[0] > 0:
-		nameOffset, styleOffset := u16(f.name, foundApple[0]+10)+stringOffset, u16(f.name, foundApple[1]+10)+stringOffset
-		nameLength, styleLength := u16(f.name, foundApple[0]+8), u16(f.name, foundApple[1]+8)
-
-		nameRecord.name = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], false)
-		nameRecord.style = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], false)
+		nameOffset, styleOffset = u16(f.name, foundApple[0]+10)+stringOffset, u16(f.name, foundApple[1]+10)+stringOffset
+		nameLength, styleLength = u16(f.name, foundApple[0]+8), u16(f.name, foundApple[1]+8)
 	case foundUnicode[0] > 0:
-		nameOffset, styleOffset := u16(f.name, foundUnicode[0]+10)+stringOffset, u16(f.name, foundUnicode[1]+10)+stringOffset
-		nameLength, styleLength := u16(f.name, foundUnicode[0]+8), u16(f.name, foundUnicode[1]+8)
-
-		nameRecord.name = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], true)
-		nameRecord.style = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], true)
+		nameOffset, styleOffset = u16(f.name, foundUnicode[0]+10)+stringOffset, u16(f.name, foundUnicode[1]+10)+stringOffset
+		nameLength, styleLength = u16(f.name, foundUnicode[0]+8), u16(f.name, foundUnicode[1]+8)
 	}
+
+	nameRecord.values[NameIDFontFamily] = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], true)
+	nameRecord.values[NameIDFontSubfamily] = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], true)
 
 	f.nameRecord = nameRecord
 
@@ -433,13 +462,17 @@ func (f *Font) nameEntryInASCII(b []byte, utf16 bool) string {
 }
 
 // Name returns the font's name.
-func (f *Font) Name() string {
-	return f.nameRecord.name
-}
+func (f *Font) Name(id NameID) string {
+	if f.nameRecord == nil {
+		f.parseName()
+	}
 
-// Style returns the font's style.
-func (f *Font) Style() string {
-	return f.nameRecord.style
+	// Return empty string if caller requests something larger than we support.
+	if id > NameIDSampleText {
+		return ""
+	}
+
+	return f.nameRecord.values[id]
 }
 
 // scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
