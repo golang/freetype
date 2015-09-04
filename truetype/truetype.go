@@ -110,6 +110,40 @@ func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 	return ttf[offset:end], nil
 }
 
+// nameEntryInASCII converts b, which may be UTF-16 encoded, into an ACSII string.
+func nameEntryInASCII(b []byte, utf16 bool) string {
+	var buf []byte
+	if utf16 { // Equivalent to tt_name_ascii_from_utf16.
+		j := len(b)
+		if j&1 == 1 {
+			return ""
+		}
+
+		for i := 0; i < j; i += 2 {
+			el := u16(b, i)
+			if el == 0 {
+				continue
+			} else if el < 32 || el > 127 {
+				buf = append(buf, '?')
+			} else {
+				buf = append(buf, byte(el))
+			}
+		}
+	} else { // Equivalent to tt_name_ascii_from_other.
+		for _, el := range b {
+			if el == 0 {
+				continue
+			} else if el < 32 || el > 127 {
+				buf = append(buf, '?')
+			} else {
+				buf = append(buf, el)
+			}
+		}
+	}
+
+	return string(buf)
+}
+
 const (
 	locaOffsetFormatUnknown int = iota
 	locaOffsetFormatShort
@@ -119,11 +153,6 @@ const (
 // A cm holds a parsed cmap entry.
 type cm struct {
 	start, end, delta, offset uint32
-}
-
-// nnameInfo holds a font's name and style.
-type nameInfo struct {
-	values [20]string
 }
 
 // A Font represents a Truetype font.
@@ -142,8 +171,6 @@ type Font struct {
 	bounds                  fixed.Rectangle26_6
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
-	// First value from head table.
-	nameRecord *nameInfo
 }
 
 func (f *Font) parseCmap() error {
@@ -339,142 +366,6 @@ func (f *Font) parseMaxp() error {
 	return nil
 }
 
-func (f *Font) parseName() error {
-	if len(f.name) < 18 { // The name table is three uint16s + at least one Name Record.  Name Records are six uint16s.
-		return FormatError("name table too short")
-	}
-	if u16(f.name, 0) != 0 { // The first uint16 in the name table should be set to 0, per the spec.
-		return FormatError(fmt.Sprintf("invalid format specifier: %d", u16(f.name, 0)))
-	}
-
-	numNames := int(u16(f.name, 2)) // The number of Name Records is the second uint16 in the name table.
-	stringOffset := u16(f.name, 4)  // And the offset marking the beginning of the character data is the third int16.
-
-	if len(f.name) < int(stringOffset) {
-		return FormatError("string offset is larger than the name table")
-	}
-
-	const ( // The platform IDs in the name table.
-		PLATFORM_UNICODE   = 0
-		PLATFORM_MACINTOSH = 1
-		PLATFORM_MICROSOFT = 3
-	)
-
-	const ( // Encoding IDs for the Microsoft platform.
-		MICROSOFT_SYMBOL_CS  = 1
-		MICROSOFT_UNICODE_CS = 2
-		MICROSOFT_UCS_4      = 10
-	)
-
-	// Keep track of which records contain the name and style information.
-	var foundUnicode, foundAppleEnglish, foundAppleRoman, foundMicrosoft, foundApple [2]int
-	foundMicrosoftEnglish := false
-
-	// Name Records begin at the fourth uint16 and are six uint16s long.
-	// Loop through them and keep track of records of interest.
-	for offset, i := 6, 0; i < numNames; i, offset = i+1, offset+12 {
-		platformID, encodingID, languageID, nameID := u16(f.name, offset), u16(f.name, offset+2), u16(f.name, offset+4), NameID(u16(f.name, offset+6))
-
-		switch nameID {
-		case NameIDFontFamily, NameIDFontSubfamily:
-			if u16(f.name, offset+8) == 0 { // Offset + 8 is the location of the string length.  If zero, skip it.
-				break
-			}
-			switch platformID {
-			case PLATFORM_UNICODE:
-				foundUnicode[nameID-1] = offset
-			case PLATFORM_MACINTOSH:
-				if languageID == 0 { // The language ID for English is zero.
-					foundAppleEnglish[nameID-1] = offset
-				} else if encodingID == 0 { // A zero encoding ID means Roman.
-					foundAppleRoman[nameID-1] = offset
-				}
-			case PLATFORM_MICROSOFT:
-				if foundMicrosoft[nameID-1] == 0 || languageID&0x3FF == 0x009 { // Prefer Microsoft fonts in English.
-					if encodingID == MICROSOFT_SYMBOL_CS || encodingID == MICROSOFT_UNICODE_CS || encodingID == MICROSOFT_UCS_4 {
-						foundMicrosoftEnglish = languageID&0x3FF == 9
-						foundMicrosoft[nameID-1] = offset
-					}
-				}
-			}
-		}
-	}
-
-	foundApple = foundAppleRoman
-	if foundAppleEnglish[0] > 0 {
-		foundApple = foundAppleEnglish
-	}
-
-	var nameOffset, nameLength, styleOffset, styleLength uint16
-	nameRecord := &nameInfo{}
-	// Retrieve ASCII version of the values.
-	switch {
-	case foundMicrosoft[0] > 0 && !(foundApple[0] > 0 && !foundMicrosoftEnglish):
-		nameOffset, styleOffset = u16(f.name, foundMicrosoft[0]+10)+stringOffset, u16(f.name, foundMicrosoft[1]+10)+stringOffset
-		nameLength, styleLength = u16(f.name, foundMicrosoft[0]+8), u16(f.name, foundMicrosoft[1]+8)
-	case foundApple[0] > 0:
-		nameOffset, styleOffset = u16(f.name, foundApple[0]+10)+stringOffset, u16(f.name, foundApple[1]+10)+stringOffset
-		nameLength, styleLength = u16(f.name, foundApple[0]+8), u16(f.name, foundApple[1]+8)
-	case foundUnicode[0] > 0:
-		nameOffset, styleOffset = u16(f.name, foundUnicode[0]+10)+stringOffset, u16(f.name, foundUnicode[1]+10)+stringOffset
-		nameLength, styleLength = u16(f.name, foundUnicode[0]+8), u16(f.name, foundUnicode[1]+8)
-	}
-
-	nameRecord.values[NameIDFontFamily] = f.nameEntryInASCII(f.name[nameOffset:nameOffset+nameLength], true)
-	nameRecord.values[NameIDFontSubfamily] = f.nameEntryInASCII(f.name[styleOffset:styleOffset+styleLength], true)
-
-	f.nameRecord = nameRecord
-
-	return nil
-}
-
-func (f *Font) nameEntryInASCII(b []byte, utf16 bool) string {
-	var buf []byte
-	if utf16 { // Equivalent to tt_name_ascii_from_utf16.
-		j := len(b)
-		if j&1 == 1 {
-			return ""
-		}
-
-		for i := 0; i < j; i += 2 {
-			el := u16(b, i)
-			if el == 0 {
-				continue
-			} else if el < 32 || el > 127 {
-				buf = append(buf, '?')
-			} else {
-				buf = append(buf, byte(el))
-			}
-		}
-	} else { // Equivalent to tt_name_ascii_from_other.
-		for _, el := range b {
-			if el == 0 {
-				continue
-			} else if el < 32 || el > 127 {
-				buf = append(buf, '?')
-			} else {
-				buf = append(buf, el)
-			}
-		}
-	}
-
-	return string(buf)
-}
-
-// Name returns the font's name.
-func (f *Font) Name(id NameID) string {
-	if f.nameRecord == nil {
-		f.parseName()
-	}
-
-	// Return empty string if caller requests something larger than we support.
-	if id > NameIDSampleText {
-		return ""
-	}
-
-	return f.nameRecord.values[id]
-}
-
 // scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
 func (f *Font) scale(x fixed.Int26_6) fixed.Int26_6 {
 	if x >= 0 {
@@ -518,6 +409,47 @@ func (f *Font) Index(x rune) Index {
 		}
 	}
 	return 0
+}
+
+// Name returns the NameID value of a Font.
+// Returns "" on error or not found.
+func (f *Font) Name(id NameID) string {
+	if len(f.name) < 18 { // The name table is three uint16s + at least one Name Record.  Name Records are six uint16s.
+		return ""
+	}
+	if u16(f.name, 0) != 0 { // The first uint16 in the name table should be set to 0, per the spec.
+		return ""
+	}
+
+	numNames := int(u16(f.name, 2)) // The number of Name Records is the second uint16 in the name table.
+	stringOffset := u16(f.name, 4)  // And the offset marking the beginning of the character data is the third int16.
+
+	if len(f.name) < int(stringOffset) {
+		return ""
+	}
+
+	valueOffset, valueLength, pid := uint16(0), uint16(0), uint16(0)
+	// Name Records begin at the fourth uint16 and are six uint16s long.
+	for offset, i := 6, 0; i < numNames; i, offset = i+1, offset+12 {
+		if u16(f.name, offset+8) == 0 { // Offset + 8 is the location of the string length.  If zero, skip it.
+			break
+		}
+
+		nameID := NameID(u16(f.name, offset+6))
+		// Find the first matching nameID, regardless of platform.
+		if nameID == id {
+			valueOffset, valueLength, pid = u16(f.name, offset+10), u16(f.name, offset+8), u16(f.name, offset)
+			break
+		}
+	}
+
+	if valueOffset == 0 {
+		return ""
+	}
+
+	// Return the ASCII value of the encoded string.
+	// The string is encoded as UTF-16 on non-Apple pids; Apple is pid 1.
+	return nameEntryInASCII(f.name[stringOffset+valueOffset:stringOffset+valueOffset+valueLength], pid != 1)
 }
 
 // unscaledHMetric returns the unscaled horizontal metrics for the glyph with
@@ -722,7 +654,6 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 	if err = f.parseHhea(); err != nil {
 		return
 	}
-
 	font = f
 	return
 }
