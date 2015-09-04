@@ -234,29 +234,6 @@ func TestName(t *testing.T) {
 	}
 }
 
-func TestStyle(t *testing.T) {
-	testCases := map[string]string{
-		"luxisr": "Regular",
-		"luximr": "Regular",
-		"luxirr": "Regular",
-	}
-
-	for name, want := range testCases {
-		f, testdataIsOptional, err := parseTestdataFont(name)
-		if err != nil {
-			if testdataIsOptional {
-				t.Log(err)
-			} else {
-				t.Fatal(err)
-			}
-			continue
-		}
-		if got := f.Name(NameIDFontSubfamily); got != want {
-			t.Errorf("%s: got %q, want %q", name, got, want)
-		}
-	}
-}
-
 type scalingTestData struct {
 	advanceWidth fixed.Int26_6
 	bounds       fixed.Rectangle26_6
