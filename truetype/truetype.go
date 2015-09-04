@@ -30,26 +30,25 @@ type Index uint16
 type NameID uint16
 
 const (
-	NameIDCopyright NameID = iota
-	NameIDFontFamily
-	NameIDFontSubfamily
-	NameIDUniqueSubfamilyID
-	NameIDFontFullName
-	NameIDNameTableVersion
-	NameIDPostscriptName
-	NameIDTrademarkNotice
-	NameIDManufacturerName
-	NameIDDesignerName
-	NameIDFontDescription
-	NameIDFontVendorURL
-	NameIDFontDesignerURL
-	NameIDFontLicense
-	NameIDFontLicenseURL
-	NameIDReserved
-	NameIDPreferredFamily
-	NameIDPreferredSubfamily
-	NameIDCompatibleName
-	NameIDSampleText
+	NameIDCopyright          NameID = 0
+	NameIDFontFamily                = 1
+	NameIDFontSubfamily             = 2
+	NameIDUniqueSubfamilyID         = 3
+	NameIDFontFullName              = 4
+	NameIDNameTableVersion          = 5
+	NameIDPostscriptName            = 6
+	NameIDTrademarkNotice           = 7
+	NameIDManufacturerName          = 8
+	NameIDDesignerName              = 9
+	NameIDFontDescription           = 10
+	NameIDFontVendorURL             = 11
+	NameIDFontDesignerURL           = 12
+	NameIDFontLicense               = 13
+	NameIDFontLicenseURL            = 14
+	NameIDPreferredFamily           = 16
+	NameIDPreferredSubfamily        = 17
+	NameIDCompatibleName            = 18
+	NameIDSampleText                = 19
 )
 
 // A Bounds holds the co-ordinate range of one or more glyphs.
