@@ -51,6 +51,20 @@ const (
 	NameIDSampleText                = 19
 )
 
+const (
+	cmapFormat4         = 4
+	cmapFormat12        = 12
+	languageIndependent = 0
+
+	// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
+	// least-significant 16-bit Platform Specific ID. The magic numbers are
+	// specified at https://www.microsoft.com/typography/otspec/name.htm
+	unicodeEncoding         = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
+	microsoftSymbolEncoding = 0x00030000 // PID = 3 (Microsoft), PSID = 0 (Symbol)
+	microsoftUCS2Encoding   = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
+	microsoftUCS4Encoding   = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
+)
+
 // A Bounds holds the co-ordinate range of one or more glyphs.
 // The endpoints are inclusive.
 type Bounds struct {
@@ -143,6 +157,55 @@ func nameEntryInASCII(b []byte, utf16 bool) string {
 	return string(buf)
 }
 
+// continueIf returns true if every b[offset]==values[i].
+func continueIf(b []byte, offsets, values []int) bool {
+	for i, offset := range offsets {
+		if int(u16(b, offset)) != values[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// parseSubtables wraps the commonality in Name and parseCmap.
+func parseSubtables(b []byte, name string, firstSubtableOffset, subtableSize, valueOffset, valueLengthOffset int, offsets, values []int, isU16Offset bool) (int, int, int, error) {
+	if len(b) < 4 {
+		return 0, 0, 0, FormatError(name + " too short")
+	}
+	nsubtab := int(u16(b, 2))
+	if len(b) < subtableSize*nsubtab+firstSubtableOffset {
+		return 0, 0, 0, FormatError(name + " too short")
+	}
+	offset, length, pid, x := uint32(0), uint16(0), uint16(0), firstSubtableOffset
+	for i := 0; i < nsubtab; i++ {
+		if continueIf(b[x:], offsets, values) {
+			// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
+			// All values are big-endian.
+			pidPsid := u32(b, x)
+			// We prefer the Unicode cmap encoding. Failing to find that, we fall
+			// back onto the Microsoft cmap encoding.
+			if pidPsid == unicodeEncoding {
+				offset, length, pid = u32(b, x+valueOffset), u16(b, x+valueLengthOffset), uint16(pidPsid>>16)
+				break
+
+			} else if pidPsid == microsoftSymbolEncoding ||
+				pidPsid == microsoftUCS2Encoding ||
+				pidPsid == microsoftUCS4Encoding {
+
+				offset, length, pid = u32(b, x+valueOffset), u16(b, x+valueLengthOffset), uint16(pidPsid>>16)
+				// We don't break out of the for loop, so that Unicode can override Microsoft.
+			}
+		}
+		x += subtableSize
+	}
+	if isU16Offset {
+		offset >>= 16
+	}
+
+	return int(offset), int(length), int(pid), nil
+}
+
 const (
 	locaOffsetFormatUnknown int = iota
 	locaOffsetFormatShort
@@ -173,49 +236,9 @@ type Font struct {
 }
 
 func (f *Font) parseCmap() error {
-	const (
-		cmapFormat4         = 4
-		cmapFormat12        = 12
-		languageIndependent = 0
-
-		// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
-		// least-significant 16-bit Platform Specific ID. The magic numbers are
-		// specified at https://www.microsoft.com/typography/otspec/name.htm
-		unicodeEncoding         = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
-		microsoftSymbolEncoding = 0x00030000 // PID = 3 (Microsoft), PSID = 0 (Symbol)
-		microsoftUCS2Encoding   = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
-		microsoftUCS4Encoding   = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
-	)
-
-	if len(f.cmap) < 4 {
-		return FormatError("cmap too short")
-	}
-	nsubtab := int(u16(f.cmap, 2))
-	if len(f.cmap) < 8*nsubtab+4 {
-		return FormatError("cmap too short")
-	}
-	offset, found, x := 0, false, 4
-	for i := 0; i < nsubtab; i++ {
-		// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
-		// All values are big-endian.
-		pidPsid, o := u32(f.cmap, x), u32(f.cmap, x+4)
-		x += 8
-		// We prefer the Unicode cmap encoding. Failing to find that, we fall
-		// back onto the Microsoft cmap encoding.
-		if pidPsid == unicodeEncoding {
-			offset, found = int(o), true
-			break
-
-		} else if pidPsid == microsoftSymbolEncoding ||
-			pidPsid == microsoftUCS2Encoding ||
-			pidPsid == microsoftUCS4Encoding {
-
-			offset, found = int(o), true
-			// We don't break out of the for loop, so that Unicode can override Microsoft.
-		}
-	}
-	if !found {
-		return UnsupportedError("cmap encoding")
+	offset, _, _, err := parseSubtables(f.cmap, "cmap", 4, 8, 4, 0, []int{}, []int{}, false)
+	if err != nil {
+		return err
 	}
 	if offset <= 0 || offset > len(f.cmap) {
 		return FormatError("bad cmap offset")
@@ -413,63 +436,12 @@ func (f *Font) Index(x rune) Index {
 // Name returns the NameID value of a Font.
 // Returns "" on error or not found.
 func (f *Font) Name(id NameID) string {
-	const (
-		cmapFormat4         = 4
-		cmapFormat12        = 12
-		languageIndependent = 0
-
-		// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
-		// least-significant 16-bit Platform Specific ID. The magic numbers are
-		// specified at https://www.microsoft.com/typography/otspec/name.htm
-		unicodeEncoding         = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
-		microsoftSymbolEncoding = 0x00030000 // PID = 3 (Microsoft), PSID = 0 (Symbol)
-		microsoftUCS2Encoding   = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
-		microsoftUCS4Encoding   = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
-	)
-
-	if len(f.name) < 18 { // The name table is three uint16s + at least one Name Record.  Name Records are six uint16s.
-		return ""
-	}
-	if u16(f.name, 0) != 0 { // The first uint16 in the name table should be set to 0, per the spec.
-		return ""
-	}
-
-	numNames := int(u16(f.name, 2)) // The number of Name Records is the second uint16 in the name table.
-	stringOffset := u16(f.name, 4)  // And the offset marking the beginning of the character data is the third int16.
-
-	if len(f.name) < int(stringOffset) {
-		return ""
-	}
-
-	valueOffset, valueLength, pid := uint16(0), uint16(0), uint16(0)
-	// Name Records begin at the fourth uint16 and are six uint16s long.
-	for offset, i := 6, 0; i < numNames; i, offset = i+1, offset+12 {
-		if u16(f.name, offset+8) == 0 { // Offset + 8 is the location of the string length.  If zero, skip it.
-			break
-		}
-
-		nameID := NameID(u16(f.name, offset+6))
-		// Find the nameID of interest.
-		if nameID == id {
-			pidPsid := u32(f.name, offset)
-			// We prefer the Unicode encoding. Failing to find that, we fall
-			// back onto the Microsoft encoding.
-			if pidPsid == unicodeEncoding {
-				valueOffset, valueLength, pid = u16(f.name, offset+10), u16(f.name, offset+8), uint16(pidPsid>>16)
-				break
-			} else if pidPsid == microsoftSymbolEncoding ||
-				pidPsid == microsoftUCS2Encoding ||
-				pidPsid == microsoftUCS4Encoding {
-				valueOffset, valueLength, pid = u16(f.name, offset+10), u16(f.name, offset+8), uint16(pidPsid>>16)
-				// We don't break out of the for loop, so that Unicode can override Microsoft.
-			}
-		}
-	}
-
+	valueOffset, valueLength, pid, _ := parseSubtables(f.name, "name", 6, 12, 10, 8, []int{6}, []int{int(id)}, true)
 	if valueOffset == 0 {
 		return ""
 	}
 
+	stringOffset := int(u16(f.name, 4))
 	// Return the ASCII value of the encoded string.
 	// The string is encoded as UTF-16 on non-Apple pids; Apple is pid 1.
 	return nameEntryInASCII(f.name[stringOffset+valueOffset:stringOffset+valueOffset+valueLength], pid != 1)
