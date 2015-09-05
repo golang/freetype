@@ -413,6 +413,20 @@ func (f *Font) Index(x rune) Index {
 // Name returns the NameID value of a Font.
 // Returns "" on error or not found.
 func (f *Font) Name(id NameID) string {
+	const (
+		cmapFormat4         = 4
+		cmapFormat12        = 12
+		languageIndependent = 0
+
+		// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
+		// least-significant 16-bit Platform Specific ID. The magic numbers are
+		// specified at https://www.microsoft.com/typography/otspec/name.htm
+		unicodeEncoding         = 0x00000003 // PID = 0 (Unicode), PSID = 3 (Unicode 2.0)
+		microsoftSymbolEncoding = 0x00030000 // PID = 3 (Microsoft), PSID = 0 (Symbol)
+		microsoftUCS2Encoding   = 0x00030001 // PID = 3 (Microsoft), PSID = 1 (UCS-2)
+		microsoftUCS4Encoding   = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
+	)
+
 	if len(f.name) < 18 { // The name table is three uint16s + at least one Name Record.  Name Records are six uint16s.
 		return ""
 	}
@@ -435,10 +449,20 @@ func (f *Font) Name(id NameID) string {
 		}
 
 		nameID := NameID(u16(f.name, offset+6))
-		// Find the first matching nameID, regardless of platform.
+		// Find the nameID of interest.
 		if nameID == id {
-			valueOffset, valueLength, pid = u16(f.name, offset+10), u16(f.name, offset+8), u16(f.name, offset)
-			break
+			pidPsid := u32(f.name, offset)
+			// We prefer the Unicode encoding. Failing to find that, we fall
+			// back onto the Microsoft encoding.
+			if pidPsid == unicodeEncoding {
+				valueOffset, valueLength, pid = u16(f.name, offset+10), u16(f.name, offset+8), uint16(pidPsid>>16)
+				break
+			} else if pidPsid == microsoftSymbolEncoding ||
+				pidPsid == microsoftUCS2Encoding ||
+				pidPsid == microsoftUCS4Encoding {
+				valueOffset, valueLength, pid = u16(f.name, offset+10), u16(f.name, offset+8), uint16(pidPsid>>16)
+				// We don't break out of the for loop, so that Unicode can override Microsoft.
+			}
 		}
 	}
 
