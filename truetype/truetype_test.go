@@ -213,9 +213,9 @@ func TestIndex(t *testing.T) {
 
 func TestName(t *testing.T) {
 	testCases := map[string]string{
-		"luxisr": "Luxi Sans",
 		"luximr": "Luxi Mono",
 		"luxirr": "Luxi Serif",
+		"luxisr": "Luxi Sans",
 	}
 
 	for name, want := range testCases {
