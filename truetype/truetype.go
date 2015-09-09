@@ -65,12 +65,6 @@ const (
 	microsoftUCS4Encoding   = 0x0003000a // PID = 3 (Microsoft), PSID = 10 (UCS-4)
 )
 
-// A Bounds holds the co-ordinate range of one or more glyphs.
-// The endpoints are inclusive.
-type Bounds struct {
-	XMin, YMin, XMax, YMax fixed.Int26_6
-}
-
 // An HMetric holds the horizontal metrics of a single glyph.
 type HMetric struct {
 	AdvanceWidth, LeftSideBearing fixed.Int26_6
