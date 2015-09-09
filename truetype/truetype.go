@@ -52,10 +52,6 @@ const (
 )
 
 const (
-	cmapFormat4         = 4
-	cmapFormat12        = 12
-	languageIndependent = 0
-
 	// A 32-bit encoding consists of a most-significant 16-bit Platform ID and a
 	// least-significant 16-bit Platform Specific ID. The magic numbers are
 	// specified at https://www.microsoft.com/typography/otspec/name.htm
@@ -230,6 +226,12 @@ type Font struct {
 }
 
 func (f *Font) parseCmap() error {
+	const (
+		cmapFormat4         = 4
+		cmapFormat12        = 12
+		languageIndependent = 0
+	)
+
 	offset, _, _, err := parseSubtables(f.cmap, "cmap", 4, 8, 4, 0, []int{}, []int{}, false)
 	if err != nil {
 		return err
