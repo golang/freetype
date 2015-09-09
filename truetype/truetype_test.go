@@ -228,7 +228,7 @@ func TestName(t *testing.T) {
 			}
 			continue
 		}
-		if got := f.Name(NameIDFontFamily); got != want {
+		if got := f.Name(NameIDCodeFontFamily); got != want {
 			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
 	}

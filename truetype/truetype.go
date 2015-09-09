@@ -27,28 +27,28 @@ import (
 type Index uint16
 
 // A NameID represents the Name Identifiers in the name table.
-type NameID uint16
+type NameIDCode uint16
 
 const (
-	NameIDCopyright          NameID = 0
-	NameIDFontFamily                = 1
-	NameIDFontSubfamily             = 2
-	NameIDUniqueSubfamilyID         = 3
-	NameIDFontFullName              = 4
-	NameIDNameTableVersion          = 5
-	NameIDPostscriptName            = 6
-	NameIDTrademarkNotice           = 7
-	NameIDManufacturerName          = 8
-	NameIDDesignerName              = 9
-	NameIDFontDescription           = 10
-	NameIDFontVendorURL             = 11
-	NameIDFontDesignerURL           = 12
-	NameIDFontLicense               = 13
-	NameIDFontLicenseURL            = 14
-	NameIDPreferredFamily           = 16
-	NameIDPreferredSubfamily        = 17
-	NameIDCompatibleName            = 18
-	NameIDSampleText                = 19
+	NameIDCodeCopyright          NameIDCode = 0
+	NameIDCodeFontFamily                    = 1
+	NameIDCodeFontSubfamily                 = 2
+	NameIDCodeUniqueSubfamilyID             = 3
+	NameIDCodeFontFullName                  = 4
+	NameIDCodeNameTableVersion              = 5
+	NameIDCodePostscriptName                = 6
+	NameIDCodeTrademarkNotice               = 7
+	NameIDCodeManufacturerName              = 8
+	NameIDCodeDesignerName                  = 9
+	NameIDCodeFontDescription               = 10
+	NameIDCodeFontVendorURL                 = 11
+	NameIDCodeFontDesignerURL               = 12
+	NameIDCodeFontLicense                   = 13
+	NameIDCodeFontLicenseURL                = 14
+	NameIDCodePreferredFamily               = 16
+	NameIDCodePreferredSubfamily            = 17
+	NameIDCodeCompatibleName                = 18
+	NameIDCodeSampleText                    = 19
 )
 
 const (
@@ -116,7 +116,7 @@ func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 // nameEntryInASCII converts b, which may be UTF-16 encoded, into an ACSII string.
 func nameEntryInASCII(b []byte, utf16 bool) string {
 	var buf []byte
-	if utf16 { // Equivalent to tt_name_ascii_from_utf16.
+	if utf16 { // Equivalent to tt_name_entry_ascii_from_utf16.
 		j := len(b)
 		if j&1 == 1 {
 			return ""
@@ -132,7 +132,7 @@ func nameEntryInASCII(b []byte, utf16 bool) string {
 				buf = append(buf, byte(el))
 			}
 		}
-	} else { // Equivalent to tt_name_ascii_from_other.
+	} else { // Equivalent to tt_name_entry_ascii_from_other.
 		for _, el := range b {
 			if el == 0 {
 				continue
@@ -158,42 +158,41 @@ func continueIf(b []byte, offsets, values []int) bool {
 	return true
 }
 
+type SubtableValidPredFunc func(b []byte) bool
+
 // parseSubtables wraps the commonality in Name and parseCmap.
-func parseSubtables(b []byte, name string, firstSubtableOffset, subtableSize, valueOffset, valueLengthOffset int, offsets, values []int, isU16Offset bool) (int, int, int, error) {
+func parseSubtables(b []byte, name string, subtableOffset, subtableSize int, tableCheck SubtableValidPredFunc) (int, int, error) {
 	if len(b) < 4 {
-		return 0, 0, 0, FormatError(name + " too short")
+		return 0, 0, FormatError(name + " too short")
 	}
 	nsubtab := int(u16(b, 2))
-	if len(b) < subtableSize*nsubtab+firstSubtableOffset {
-		return 0, 0, 0, FormatError(name + " too short")
+	if len(b) < subtableSize*nsubtab+subtableOffset {
+		return 0, 0, FormatError(name + " too short")
 	}
-	offset, length, pid, x := uint32(0), uint16(0), uint16(0), firstSubtableOffset
+	offset, pid, x := 0, 0, subtableOffset
 	for i := 0; i < nsubtab; i++ {
-		if continueIf(b[x:], offsets, values) {
+		if tableCheck == nil || tableCheck(b[x:]) { // When tableCheck is nil, examine the table.
 			// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
 			// All values are big-endian.
 			pidPsid := u32(b, x)
 			// We prefer the Unicode cmap encoding. Failing to find that, we fall
 			// back onto the Microsoft cmap encoding.
 			if pidPsid == unicodeEncoding {
-				offset, length, pid = u32(b, x+valueOffset), u16(b, x+valueLengthOffset), uint16(pidPsid>>16)
+				offset, pid = x, int(pidPsid>>16)
 				break
 
 			} else if pidPsid == microsoftSymbolEncoding ||
 				pidPsid == microsoftUCS2Encoding ||
 				pidPsid == microsoftUCS4Encoding {
 
-				offset, length, pid = u32(b, x+valueOffset), u16(b, x+valueLengthOffset), uint16(pidPsid>>16)
+				offset, pid = x, int(pidPsid>>16)
 				// We don't break out of the for loop, so that Unicode can override Microsoft.
 			}
 		}
 		x += subtableSize
 	}
-	if isU16Offset {
-		offset >>= 16
-	}
 
-	return int(offset), int(length), int(pid), nil
+	return offset, pid, nil
 }
 
 const (
@@ -232,7 +231,8 @@ func (f *Font) parseCmap() error {
 		languageIndependent = 0
 	)
 
-	offset, _, _, err := parseSubtables(f.cmap, "cmap", 4, 8, 4, 0, []int{}, []int{}, false)
+	x, _, err := parseSubtables(f.cmap, "cmap", 4, 8, nil)
+	offset := int(u32(f.cmap, x+4))
 	if err != nil {
 		return err
 	}
@@ -429,18 +429,48 @@ func (f *Font) Index(x rune) Index {
 	return 0
 }
 
-// Name returns the NameID value of a Font.
+// Name returns the NameIDCode value of a Font.
 // Returns "" on error or not found.
-func (f *Font) Name(id NameID) string {
-	valueOffset, valueLength, pid, _ := parseSubtables(f.name, "name", 6, 12, 10, 8, []int{6}, []int{int(id)}, true)
-	if valueOffset == 0 {
+func (f *Font) Name(id NameIDCode) string {
+	x, platformID, err := parseSubtables(f.name, "name", 6, 12,
+		func(b []byte) bool {
+			return NameIDCode(u16(b, 6)) == id
+		})
+	if err != nil {
 		return ""
 	}
 
-	stringOffset := int(u16(f.name, 4))
+	offset, length := u16(f.name, x+10), u16(f.name, x+8)
+
+	offset += u16(f.name, 4)
 	// Return the ASCII value of the encoded string.
-	// The string is encoded as UTF-16 on non-Apple pids; Apple is pid 1.
-	return nameEntryInASCII(f.name[stringOffset+valueOffset:stringOffset+valueOffset+valueLength], pid != 1)
+	// The string is encoded as UTF-16 on non-Apple platformIDs; Apple is platformID 1.
+	src := f.name[offset : offset+length]
+	var dst []byte
+	if platformID != 1 { // UTF-16.
+		if len(src)&1 != 0 {
+			return ""
+		}
+		dst = make([]byte, len(src)/2)
+		for i := range dst {
+			dst[i] = printable(u16(src, 2*i))
+		}
+	} else { // ASCII.
+		dst = make([]byte, len(src))
+		for i, c := range src {
+			dst[i] = printable(uint16(c))
+		}
+	}
+
+	return string(dst)
+}
+
+func printable(r uint16) byte {
+	if 0x20 <= r && r <= 0x7f {
+		return byte(r)
+	}
+
+	return '?'
 }
 
 // unscaledHMetric returns the unscaled horizontal metrics for the glyph with
