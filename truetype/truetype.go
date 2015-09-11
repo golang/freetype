@@ -119,30 +119,32 @@ func parseSubtables(b []byte, name string, offset, size int, tableCheckPred func
 		return 0, 0, FormatError(name + " too short")
 	}
 	nsubtab := int(u16(b, 2))
-	if len(b) < subtableSize*nsubtab+subtableOffset {
+	if len(b) < size*nsubtab+offset {
 		return 0, 0, FormatError(name + " too short")
 	}
-	offset, pid, x := 0, 0, subtableOffset
-	for i := 0; i < nsubtab; i++ {
-		if tableCheck == nil || tableCheck(b[x:]) { // When tableCheck is nil, examine the table.
-			// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
-			// All values are big-endian.
-			pidPsid := u32(b, x)
-			// We prefer the Unicode cmap encoding. Failing to find that, we fall
-			// back onto the Microsoft cmap encoding.
-			if pidPsid == unicodeEncoding {
-				offset, pid = x, int(pidPsid>>16)
-				break
-
-			} else if pidPsid == microsoftSymbolEncoding ||
-				pidPsid == microsoftUCS2Encoding ||
-				pidPsid == microsoftUCS4Encoding {
-
-				offset, pid = x, int(pidPsid>>16)
-				// We don't break out of the for loop, so that Unicode can override Microsoft.
-			}
+	pid, x := 0, offset
+	offset = 0
+	for i := 0; i < nsubtab; i, x = i+1, x+size {
+		if tableCheckPred != nil && !tableCheckPred(b[x:]) { // When tableCheck is nil, examine the table.
+			continue
 		}
-		x += subtableSize
+
+		// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
+		// All values are big-endian.
+		pidPsid := u32(b, x)
+		// We prefer the Unicode cmap encoding. Failing to find that, we fall
+		// back onto the Microsoft cmap encoding.
+		if pidPsid == unicodeEncoding {
+			offset, pid = x, int(pidPsid>>16)
+			break
+
+		} else if pidPsid == microsoftSymbolEncoding ||
+			pidPsid == microsoftUCS2Encoding ||
+			pidPsid == microsoftUCS4Encoding {
+
+			offset, pid = x, int(pidPsid>>16)
+			// We don't break out of the for loop, so that Unicode can override Microsoft.
+		}
 	}
 
 	return offset, pid, nil
@@ -385,10 +387,9 @@ func (f *Font) Index(x rune) Index {
 // Name returns the NameID value of a Font.
 // Returns "" on error or not found.
 func (f *Font) Name(id NameID) string {
-	x, platformID, err := parseSubtables(f.name, "name", 6, 12,
-		func(b []byte) bool {
-			return NameID(u16(b, 6)) == id
-		})
+	x, platformID, err := parseSubtables(f.name, "name", 6, 12, func(b []byte) bool {
+		return NameID(u16(b, 6)) == id
+	})
 	if err != nil {
 		return ""
 	}
@@ -422,7 +423,6 @@ func printable(r uint16) byte {
 	if 0x20 <= r && r <= 0x7f {
 		return byte(r)
 	}
-
 	return '?'
 }
 
