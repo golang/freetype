@@ -113,11 +113,8 @@ func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 	return ttf[offset:end], nil
 }
 
-
-type SubtableValidPredFunc func(b []byte) bool
-
 // parseSubtables wraps the commonality in Name and parseCmap.
-func parseSubtables(b []byte, name string, subtableOffset, subtableSize int, tableCheck SubtableValidPredFunc) (int, int, error) {
+func parseSubtables(b []byte, name string, offset, size int, tableCheckPred func(b []byte) bool) (int, int, error) {
 	if len(b) < 4 {
 		return 0, 0, FormatError(name + " too short")
 	}
