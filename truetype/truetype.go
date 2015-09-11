@@ -27,28 +27,28 @@ import (
 type Index uint16
 
 // A NameID represents the Name Identifiers in the name table.
-type NameIDCode uint16
+type NameID uint16
 
 const (
-	NameIDCodeCopyright          NameIDCode = 0
-	NameIDCodeFontFamily                    = 1
-	NameIDCodeFontSubfamily                 = 2
-	NameIDCodeUniqueSubfamilyID             = 3
-	NameIDCodeFontFullName                  = 4
-	NameIDCodeNameTableVersion              = 5
-	NameIDCodePostscriptName                = 6
-	NameIDCodeTrademarkNotice               = 7
-	NameIDCodeManufacturerName              = 8
-	NameIDCodeDesignerName                  = 9
-	NameIDCodeFontDescription               = 10
-	NameIDCodeFontVendorURL                 = 11
-	NameIDCodeFontDesignerURL               = 12
-	NameIDCodeFontLicense                   = 13
-	NameIDCodeFontLicenseURL                = 14
-	NameIDCodePreferredFamily               = 16
-	NameIDCodePreferredSubfamily            = 17
-	NameIDCodeCompatibleName                = 18
-	NameIDCodeSampleText                    = 19
+	NameIDCopyright          NameID = 0
+	NameIDFontFamily                = 1
+	NameIDFontSubfamily             = 2
+	NameIDUniqueSubfamilyID         = 3
+	NameIDFontFullName              = 4
+	NameIDNameTableVersion          = 5
+	NameIDPostscriptName            = 6
+	NameIDTrademarkNotice           = 7
+	NameIDManufacturerName          = 8
+	NameIDDesignerName              = 9
+	NameIDFontDescription           = 10
+	NameIDFontVendorURL             = 11
+	NameIDFontDesignerURL           = 12
+	NameIDFontLicense               = 13
+	NameIDFontLicenseURL            = 14
+	NameIDPreferredFamily           = 16
+	NameIDPreferredSubfamily        = 17
+	NameIDCompatibleName            = 18
+	NameIDSampleText                = 19
 )
 
 const (
@@ -429,12 +429,12 @@ func (f *Font) Index(x rune) Index {
 	return 0
 }
 
-// Name returns the NameIDCode value of a Font.
+// Name returns the NameID value of a Font.
 // Returns "" on error or not found.
-func (f *Font) Name(id NameIDCode) string {
+func (f *Font) Name(id NameID) string {
 	x, platformID, err := parseSubtables(f.name, "name", 6, 12,
 		func(b []byte) bool {
-			return NameIDCode(u16(b, 6)) == id
+			return NameID(u16(b, 6)) == id
 		})
 	if err != nil {
 		return ""
