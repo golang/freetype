@@ -113,50 +113,6 @@ func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 	return ttf[offset:end], nil
 }
 
-// nameEntryInASCII converts b, which may be UTF-16 encoded, into an ACSII string.
-func nameEntryInASCII(b []byte, utf16 bool) string {
-	var buf []byte
-	if utf16 { // Equivalent to tt_name_entry_ascii_from_utf16.
-		j := len(b)
-		if j&1 == 1 {
-			return ""
-		}
-
-		for i := 0; i < j; i += 2 {
-			el := u16(b, i)
-			if el == 0 {
-				continue
-			} else if el < 32 || el > 127 {
-				buf = append(buf, '?')
-			} else {
-				buf = append(buf, byte(el))
-			}
-		}
-	} else { // Equivalent to tt_name_entry_ascii_from_other.
-		for _, el := range b {
-			if el == 0 {
-				continue
-			} else if el < 32 || el > 127 {
-				buf = append(buf, '?')
-			} else {
-				buf = append(buf, el)
-			}
-		}
-	}
-
-	return string(buf)
-}
-
-// continueIf returns true if every b[offset]==values[i].
-func continueIf(b []byte, offsets, values []int) bool {
-	for i, offset := range offsets {
-		if int(u16(b, offset)) != values[i] {
-			return false
-		}
-	}
-
-	return true
-}
 
 type SubtableValidPredFunc func(b []byte) bool
 
