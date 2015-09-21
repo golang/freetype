@@ -26,7 +26,9 @@ import (
 // An Index is a Font's index of a rune.
 type Index uint16
 
-// A NameID represents the Name Identifiers in the name table.
+// A NameID identifies a name table entry.
+//
+// See https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6name.html
 type NameID uint16
 
 const (
@@ -113,41 +115,49 @@ func readTable(ttf []byte, offsetLength []byte) ([]byte, error) {
 	return ttf[offset:end], nil
 }
 
-// parseSubtables wraps the commonality in Name and parseCmap.
-func parseSubtables(b []byte, name string, offset, size int, tableCheckPred func(b []byte) bool) (int, int, error) {
-	if len(b) < 4 {
+// parseSubtables returns the offset and platformID of the best subtable in
+// table, where best favors a Unicode cmap encoding, and failing that, a
+// Microsoft cmap encoding. offset is the offset of the first subtable in
+// table, and size is the size of each subtable.
+//
+// If pred is non-nil, then only subtables that satisfy that predicate will be
+// considered.
+func parseSubtables(table []byte, name string, offset, size int, pred func([]byte) bool) (
+	bestOffset int, bestPID uint32, retErr error) {
+
+	if len(table) < 4 {
 		return 0, 0, FormatError(name + " too short")
 	}
-	nsubtab := int(u16(b, 2))
-	if len(b) < size*nsubtab+offset {
+	nSubtables := int(u16(table, 2))
+	if len(table) < size*nSubtables+offset {
 		return 0, 0, FormatError(name + " too short")
 	}
-	pid, x := 0, offset
-	offset = 0
-	for i := 0; i < nsubtab; i, x = i+1, x+size {
-		if tableCheckPred != nil && !tableCheckPred(b[x:]) { // When tableCheck is nil, examine the table.
+	ok := false
+	for i := 0; i < nSubtables; i, offset = i+1, offset+size {
+		if pred != nil && !pred(table[offset:]) {
 			continue
 		}
-
 		// We read the 16-bit Platform ID and 16-bit Platform Specific ID as a single uint32.
 		// All values are big-endian.
-		pidPsid := u32(b, x)
+		pidPsid := u32(table, offset)
 		// We prefer the Unicode cmap encoding. Failing to find that, we fall
 		// back onto the Microsoft cmap encoding.
 		if pidPsid == unicodeEncoding {
-			offset, pid = x, int(pidPsid>>16)
+			bestOffset, bestPID, ok = offset, pidPsid>>16, true
 			break
 
 		} else if pidPsid == microsoftSymbolEncoding ||
 			pidPsid == microsoftUCS2Encoding ||
 			pidPsid == microsoftUCS4Encoding {
 
-			offset, pid = x, int(pidPsid>>16)
+			bestOffset, bestPID, ok = offset, pidPsid>>16, true
 			// We don't break out of the for loop, so that Unicode can override Microsoft.
 		}
 	}
-
-	return offset, pid, nil
+	if !ok {
+		return 0, 0, UnsupportedError(name + " encoding")
+	}
+	return bestOffset, bestPID, nil
 }
 
 const (
@@ -186,11 +196,11 @@ func (f *Font) parseCmap() error {
 		languageIndependent = 0
 	)
 
-	x, _, err := parseSubtables(f.cmap, "cmap", 4, 8, nil)
-	offset := int(u32(f.cmap, x+4))
+	offset, _, err := parseSubtables(f.cmap, "cmap", 4, 8, nil)
 	if err != nil {
 		return err
 	}
+	offset = int(u32(f.cmap, offset+4))
 	if offset <= 0 || offset > len(f.cmap) {
 		return FormatError("bad cmap offset")
 	}
@@ -384,8 +394,8 @@ func (f *Font) Index(x rune) Index {
 	return 0
 }
 
-// Name returns the NameID value of a Font.
-// Returns "" on error or not found.
+// Name returns the Font's name value for the given NameID. It returns "" if
+// there was an error, or if that name was not found.
 func (f *Font) Name(id NameID) string {
 	x, platformID, err := parseSubtables(f.name, "name", 6, 12, func(b []byte) bool {
 		return NameID(u16(b, 6)) == id
@@ -393,10 +403,7 @@ func (f *Font) Name(id NameID) string {
 	if err != nil {
 		return ""
 	}
-
-	offset, length := u16(f.name, x+10), u16(f.name, x+8)
-
-	offset += u16(f.name, 4)
+	offset, length := u16(f.name, 4)+u16(f.name, x+10), u16(f.name, x+8)
 	// Return the ASCII value of the encoded string.
 	// The string is encoded as UTF-16 on non-Apple platformIDs; Apple is platformID 1.
 	src := f.name[offset : offset+length]
@@ -415,12 +422,11 @@ func (f *Font) Name(id NameID) string {
 			dst[i] = printable(uint16(c))
 		}
 	}
-
 	return string(dst)
 }
 
 func printable(r uint16) byte {
-	if 0x20 <= r && r <= 0x7f {
+	if 0x20 <= r && r < 0x7f {
 		return byte(r)
 	}
 	return '?'
