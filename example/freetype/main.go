@@ -103,7 +103,6 @@ func main() {
 	var width, height int
 	// Measure the text to calculate the minimum size of the image
 	if *bound {
-		x := 0
 		pt := freetype.Pt(10, 10+int(c.PointToFixed(*size)>>6))
 		for _, s := range text {
 			ptr, err := c.MeasureString(s, pt)
@@ -112,7 +111,7 @@ func main() {
 				return
 			}
 			pt.Y += c.PointToFixed(*size * *spacing)
-			x = int(ptr.X >> 6)
+            x := int(ptr.X >> 6)
 			if x > width {
 				width = x
 			}
