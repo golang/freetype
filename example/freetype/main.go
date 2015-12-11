@@ -111,7 +111,7 @@ func main() {
 				return
 			}
 			pt.Y += c.PointToFixed(*size * *spacing)
-            x := int(ptr.X >> 6)
+			x := int(ptr.X >> 6)
 			if x > width {
 				width = x
 			}
