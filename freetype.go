@@ -229,7 +229,7 @@ func (c *Context) glyph(glyph truetype.Index, p fixed.Point26_6) (
 // p is a fixed.Point26_6 and can therefore represent sub-pixel positions.
 func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, error) {
 	if c.f == nil {
-		return fixed.Point26_6{}, errors.New("freetype: DrawText called with a nil font")
+		return fixed.Point26_6{}, errors.New("freetype: DrawString called with a nil font")
 	}
 	prev, hasPrev := truetype.Index(0), false
 	for _, rune := range s {
@@ -252,6 +252,31 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 			mp := image.Point{0, dr.Min.Y - glyphRect.Min.Y}
 			draw.DrawMask(c.dst, dr, c.src, image.ZP, mask, mp, draw.Over)
 		}
+		prev, hasPrev = index, true
+	}
+	return p, nil
+}
+
+// MeasureString is identical to DrawString but only measure the text.
+func (c *Context) MeasureString(s string, p fixed.Point26_6) (fixed.Point26_6, error) {
+	if c.f == nil {
+		return fixed.Point26_6{}, errors.New("freetype: MeasureString called with a nil font")
+	}
+	prev, hasPrev := truetype.Index(0), false
+	for _, rune := range s {
+		index := c.f.Index(rune)
+		if hasPrev {
+			kern := c.f.Kern(c.scale, prev, index)
+			if c.hinting != font.HintingNone {
+				kern = (kern + 32) &^ 63
+			}
+			p.X += kern
+		}
+		advanceWidth, _, _, err := c.glyph(index, p)
+		if err != nil {
+			return fixed.Point26_6{}, err
+		}
+		p.X += advanceWidth
 		prev, hasPrev = index, true
 	}
 	return p, nil
