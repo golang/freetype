@@ -15,7 +15,7 @@
 //
 // To measure a TrueType font in ideal FUnit space, use scale equal to
 // font.FUnitsPerEm().
-package truetype // import "github.com/golang/freetype/truetype"
+package truetype // import "github.com/mgeist/freetype/truetype"
 
 import (
 	"fmt"
@@ -574,14 +574,15 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 		return
 	}
 	n, offset := int(u16(ttf, offset)), offset+2
-	if len(ttf) < 16*n+12 {
+	offset = offset + 2*3 // skip 3 short fields
+	if len(ttf) < 16*n+offset {
 		err = FormatError("TTF data is too short")
 		return
 	}
 	f := new(Font)
 	// Assign the table slices.
 	for i := 0; i < n; i++ {
-		x := 16*i + 12
+		x := 16*i + offset
 		switch string(ttf[x : x+4]) {
 		case "cmap":
 			f.cmap, err = readTable(ttf, ttf[x+8:x+16])
