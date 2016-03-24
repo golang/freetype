@@ -77,4 +77,12 @@ func main() {
 	printGlyph(g)
 	i1 := f.Index(c1)
 	fmt.Printf("\n'%c', '%c' Kern:%d\n", c0, c1, f.Kern(fupe, i0, i1))
+
+	fmt.Printf("\nThe numbers above are in FUnits.\n" +
+		"The numbers below are in 26.6 fixed point pixels, at 12pt and 72dpi.\n\n")
+	a := truetype.NewFace(f, &truetype.Options{
+		Size: 12,
+		DPI:  72,
+	})
+	fmt.Printf("%#v\n", a.Metrics())
 }

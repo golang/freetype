@@ -184,7 +184,9 @@ type Font struct {
 	locaOffsetFormat        int
 	nGlyph, nHMetric, nKern int
 	fUnitsPerEm             int32
-	bounds                  fixed.Rectangle26_6
+	ascent                  int32               // In FUnits.
+	descent                 int32               // In FUnits; typically negative.
+	bounds                  fixed.Rectangle26_6 // In FUnits.
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
 }
@@ -289,6 +291,8 @@ func (f *Font) parseHhea() error {
 	if len(f.hhea) != 36 {
 		return FormatError(fmt.Sprintf("bad hhea length: %d", len(f.hhea)))
 	}
+	f.ascent = int32(int16(u16(f.hhea, 4)))
+	f.descent = int32(int16(u16(f.hhea, 6)))
 	f.nHMetric = int(u16(f.hhea, 34))
 	if 4*f.nHMetric+2*(f.nGlyph-f.nHMetric) != len(f.hmtx) {
 		return FormatError(fmt.Sprintf("bad hmtx length: %d", len(f.hmtx)))
