@@ -254,10 +254,13 @@ func (a *face) Close() error { return nil }
 func (a *face) Metrics() font.Metrics {
 	scale := float64(a.scale)
 	fupe := float64(a.f.FUnitsPerEm())
+	ascent := fixed.Int26_6(math.Ceil(scale * float64(+a.f.ascent) / fupe))
+	descent := fixed.Int26_6(math.Ceil(scale * float64(-a.f.descent) / fupe))
+	lineGap := fixed.Int26_6(math.Ceil(scale * float64(+a.f.lineGap) / fupe))
 	return font.Metrics{
-		Height:  a.scale,
-		Ascent:  fixed.Int26_6(math.Ceil(scale * float64(+a.f.ascent) / fupe)),
-		Descent: fixed.Int26_6(math.Ceil(scale * float64(-a.f.descent) / fupe)),
+		Height:  ascent + lineGap + descent,
+		Ascent:  ascent,
+		Descent: descent,
 	}
 }
 
