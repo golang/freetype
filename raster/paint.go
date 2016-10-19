@@ -180,6 +180,53 @@ func NewRGBAPainter(m *image.RGBA) *RGBAPainter {
 	return &RGBAPainter{Image: m}
 }
 
+//An GrayPainter is a Painter that paints Spans onto a *image.Gray.
+type GrayPainter struct {
+	// Image is the image to compose onto.
+	Image *image.Gray
+	//cy is the 8-bit color to paint the spans.
+	cy uint8
+}
+
+// Paint satisfies the Painter interface.
+func (r GrayPainter) Paint(ss []Span, done bool) {
+	b := r.Image.Bounds()
+	for _, s := range ss {
+		if s.Y < b.Min.Y {
+			continue
+		}
+		if s.Y >= b.Max.Y {
+			return
+		}
+		if s.X0 < b.Min.X {
+			s.X0 = b.Min.X
+		}
+		if s.X1 > b.Max.X {
+			s.X1 = b.Max.X
+		}
+		if s.X0 >= s.X1 {
+			continue
+		}
+		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
+		p := r.Image.Pix[base+s.X0 : base+s.X1]
+		color := r.cy
+		for i := range p {
+			p[i] = color
+		}
+	}
+}
+
+// SetColor sets the color to paint the spans.
+func (r *GrayPainter) SetColor(c color.Color) {
+	c1 := color.GrayModel.Convert(c).(color.Gray).Y
+	r.cy = c1
+}
+
+//NewGRAYPainter creates a new GrayPainter for the given image
+func NewGRAYPainter(m *image.Gray) *GrayPainter {
+	return &GrayPainter{Image: m}
+}
+
 // A MonochromePainter wraps another Painter, quantizing each Span's alpha to
 // be either fully opaque or fully transparent.
 type MonochromePainter struct {
