@@ -641,3 +641,26 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 	font = f
 	return
 }
+
+// Dump prints internal details about the font to stdout
+func (f *Font) Dump() {
+	fmt.Printf("Name: %s\n", f.Name(NameIDFontFullName))
+	fmt.Printf(" Glyphs: %d\n HMetrics: %d\n Kerns: %d\n", f.nGlyph, f.nHMetric, f.nKern)
+	fmt.Printf(" FUnits-per-em: %d\n", f.fUnitsPerEm)
+	fmt.Printf(" Bounds: %+v\n", f.bounds)
+	fmt.Printf(" Ascent: %d\tDescent: %d\n", f.ascent, f.descent)
+
+	// Build a mapping of glyph indices to characters
+	glyphToChar := make([]uint32, f.nGlyph)
+	for _, cm := range f.cm {
+		for i := cm.start; i <= cm.end; i++ {
+			glyphToChar[f.Index(rune(i))] = i
+		}
+	}
+
+	// Dump the cmap in glyph index order
+	fmt.Printf("cmap:\n")
+	for i, val := range glyphToChar {
+		fmt.Printf(" Glyph %d -> %+q\n", i, val)
+	}
+}
