@@ -550,8 +550,7 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			return
 		}
 		ttcVersion, offset := u32(ttf, offset), offset+4
-		if ttcVersion != 0x00010000 {
-			// TODO: support TTC version 2.0, once I have such a .ttc file to test with.
+		if ttcVersion != 0x00010000 && ttcVersion != 0x00020000 {
 			err = FormatError("bad TTC version")
 			return
 		}
@@ -578,14 +577,15 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 		return
 	}
 	n, offset := int(u16(ttf, offset)), offset+2
-	if len(ttf) < 16*n+12 {
+	offset += 6 // Skip the searchRange, entrySelector and rangeShift.
+	if len(ttf) < 16*n+offset {
 		err = FormatError("TTF data is too short")
 		return
 	}
 	f := new(Font)
 	// Assign the table slices.
 	for i := 0; i < n; i++ {
-		x := 16*i + 12
+		x := 16*i + offset
 		switch string(ttf[x : x+4]) {
 		case "cmap":
 			f.cmap, err = readTable(ttf, ttf[x+8:x+16])
