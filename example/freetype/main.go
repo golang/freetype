@@ -34,6 +34,7 @@ var (
 	size     = flag.Float64("size", 12, "font size in points")
 	spacing  = flag.Float64("spacing", 1.5, "line spacing (e.g. 2 means double spaced)")
 	wonb     = flag.Bool("whiteonblack", false, "white text on a black background")
+	bound    = flag.Bool("bound", false, "generates image with minimum size for the text")
 )
 
 var text = []string{
@@ -89,27 +90,53 @@ func main() {
 	}
 
 	// Initialize the context.
-	fg, bg := image.Black, image.White
-	ruler := color.RGBA{0xdd, 0xdd, 0xdd, 0xff}
-	if *wonb {
-		fg, bg = image.White, image.Black
-		ruler = color.RGBA{0x22, 0x22, 0x22, 0xff}
-	}
-	rgba := image.NewRGBA(image.Rect(0, 0, 640, 480))
-	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)
 	c := freetype.NewContext()
 	c.SetDPI(*dpi)
 	c.SetFont(f)
 	c.SetFontSize(*size)
-	c.SetClip(rgba.Bounds())
-	c.SetDst(rgba)
-	c.SetSrc(fg)
 	switch *hinting {
 	default:
 		c.SetHinting(font.HintingNone)
 	case "full":
 		c.SetHinting(font.HintingFull)
 	}
+
+	var width, height int
+	// Measure the text to calculate the minimum size of the image
+	if *bound {
+		pt := freetype.Pt(10, 10+int(c.PointToFixed(*size)>>6))
+		for _, s := range text {
+			ptr, err := c.MeasureString(s, pt)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			pt.Y += c.PointToFixed(*size * *spacing)
+			x := int(ptr.X >> 6)
+			if x > width {
+				width = x
+			}
+		}
+		width += 10
+		height = int(pt.Y)>>6 - int(c.PointToFixed(*size)>>6)
+		// Use default size for the image
+	} else {
+		width = 640
+		height = 480
+	}
+
+	// Creates image with the specified size
+	fg, bg := image.Black, image.White
+	ruler := color.RGBA{0xdd, 0xdd, 0xdd, 0xff}
+	if *wonb {
+		fg, bg = image.White, image.Black
+		ruler = color.RGBA{0x22, 0x22, 0x22, 0xff}
+	}
+	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(rgba, rgba.Bounds(), bg, image.ZP, draw.Src)
+	c.SetClip(rgba.Bounds())
+	c.SetDst(rgba)
+	c.SetSrc(fg)
 
 	// Draw the guidelines.
 	for i := 0; i < 200; i++ {
