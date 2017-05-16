@@ -6,15 +6,15 @@
 // The freetype package provides a convenient API to draw text onto an image.
 // Use the freetype/raster and freetype/truetype packages for lower level
 // control over rasterization and TrueType parsing.
-package freetype // import "github.com/tdewolff/freetype"
+package freetype // import "github.com/golang/freetype"
 
 import (
 	"errors"
 	"image"
 	"image/draw"
 
-	"github.com/tdewolff/freetype/raster"
-	"github.com/tdewolff/freetype/truetype"
+	"github.com/golang/freetype/raster"
+	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
