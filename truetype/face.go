@@ -67,6 +67,9 @@ type Options struct {
 	// A zero value means to use 1 sub-pixel location.
 	SubPixelsY int
 
+	// Stroke is the number of pixels that the font glyphs are being stroked.
+	//
+	// A zero values means no stroke.
 	Stroke int
 }
 
