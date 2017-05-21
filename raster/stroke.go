@@ -445,6 +445,7 @@ func (k *stroker) stroke(q Path) {
 	} else {
 		pivot := q.firstPoint()
 		k.jr.Join(k.p, &k.r, k.u, pivot, k.anorm, pivot.Sub(fixed.Point26_6{k.r[1], k.r[2]}))
+		k.p.Start(fixed.Point26_6{k.r[len(k.r)-3], k.r[len(k.r)-2]}) // reverse path is now separate
 	}
 	addPathReversed(k.p, k.r)
 	if !closed {
