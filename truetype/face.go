@@ -9,7 +9,7 @@ import (
 	"image"
 	"math"
 
-	"github.com/golang/freetype/raster"
+	"github.com/tdewolff/freetype/raster"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -491,7 +491,6 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 	if a.stroke == 0 {
 		a.r.AddPath(path)
 	} else {
-		path.Add1(start)
 		a.r.AddStroke(path, a.stroke, raster.RoundCapper, raster.RoundJoiner)
 	}
 }
