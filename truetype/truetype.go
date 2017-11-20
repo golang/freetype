@@ -411,6 +411,7 @@ func (f *Font) Index(x rune) Index {
 // Name returns the Font's name value for the given NameID. It returns "" if
 // there was an error, or if that name was not found.
 func (f *Font) Name(id NameID) string {
+	fmt.Println("YOU ARE DOING IT!")
 	x, platformID, err := parseSubtables(f.name, "name", 6, 12, func(b []byte) bool {
 		return NameID(u16(b, 6)) == id
 	})
