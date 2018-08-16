@@ -175,6 +175,9 @@ func (g *GlyphBuf) load(recursion uint32, i Index, useMyMetrics bool) (err error
 	if recursion >= 32 {
 		return UnsupportedError("excessive compound glyph recursion")
 	}
+	if g.font.loca == nil {
+		return UnsupportedError("no glyph location data")
+	}
 	// Find the relevant slice of g.font.glyf.
 	var g0, g1 uint32
 	if g.font.locaOffsetFormat == locaOffsetFormatShort {
