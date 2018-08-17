@@ -15,6 +15,7 @@
 //
 // To measure a TrueType font in ideal FUnit space, use scale equal to
 // font.FUnitsPerEm().
+
 package truetype
 
 import (
