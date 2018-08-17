@@ -187,6 +187,7 @@ type Font struct {
 	fUnitsPerEm             int32
 	ascent                  int32               // In FUnits.
 	descent                 int32               // In FUnits; typically negative.
+	lineGap                 int32               // In FUnits.
 	bounds                  fixed.Rectangle26_6 // In FUnits.
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
@@ -294,6 +295,7 @@ func (f *Font) parseHhea() error {
 	}
 	f.ascent = int32(int16(u16(f.hhea, 4)))
 	f.descent = int32(int16(u16(f.hhea, 6)))
+	f.lineGap = int32(int16(u16(f.hhea, 8)))
 	f.nHMetric = int(u16(f.hhea, 34))
 	if 4*f.nHMetric+2*(f.nGlyph-f.nHMetric) != len(f.hmtx) {
 		return FormatError(fmt.Sprintf("bad hmtx length: %d", len(f.hmtx)))
@@ -323,7 +325,9 @@ func (f *Font) parseKern() error {
 	}
 	version, offset := u16(f.kern, 0), 2
 	if version != 0 {
-		return UnsupportedError(fmt.Sprintf("kern version: %d", version))
+		f.nKern = 0
+		return nil
+		// return UnsupportedError(fmt.Sprintf("kern version: %d", version))
 	}
 
 	n, offset := u16(f.kern, offset), offset+2

@@ -229,6 +229,7 @@ type face struct {
 	maxh          int
 	glyphBuf      GlyphBuf
 	indexCache    [indexCacheLen]indexCacheEntry
+	advanceCache  map[rune]fixed.Int26_6
 
 	// TODO: clip rectangle?
 }
@@ -255,9 +256,12 @@ func (a *face) Metrics() font.Metrics {
 	scale := float64(a.scale)
 	fupe := float64(a.f.FUnitsPerEm())
 	return font.Metrics{
-		Height:  a.scale,
+		Height:  fixed.Int26_6(math.Ceil(scale * float64(a.f.ascent-a.f.descent+a.f.lineGap) / fupe)),
 		Ascent:  fixed.Int26_6(math.Ceil(scale * float64(+a.f.ascent) / fupe)),
 		Descent: fixed.Int26_6(math.Ceil(scale * float64(-a.f.descent) / fupe)),
+		// TODO: Metrics should include LineGap as a separate measure
+		// TODO: Would also be great to include Ex as in the height of an "x" --
+		// used widely for layout
 	}
 }
 
@@ -342,9 +346,17 @@ func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.In
 }
 
 func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
+	if a.advanceCache == nil {
+		a.advanceCache = make(map[rune]fixed.Int26_6, 1024)
+	}
+	advance, ok = a.advanceCache[r]
+	if ok {
+		return
+	}
 	if err := a.glyphBuf.Load(a.f, a.scale, a.index(r), a.hinting); err != nil {
 		return 0, false
 	}
+	a.advanceCache[r] = a.glyphBuf.AdvanceWidth
 	return a.glyphBuf.AdvanceWidth, true
 }
 
