@@ -6,6 +6,8 @@
 package truetype
 
 import (
+	"fmt"
+
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -231,7 +233,11 @@ func (g *GlyphBuf) load(recursion uint32, i Index, useMyMetrics bool) (err error
 		np0, ne0 := len(g.Points), len(g.Ends)
 		program := g.loadSimple(glyf, ne)
 		g.addPhantomsAndScale(np0, np0, true, true)
-		pp1x = g.Points[len(g.Points)-4].X
+		idx := len(g.Points) - 4
+		if idx < 0 {
+			return fmt.Errorf("points out of range error")
+		}
+		pp1x = g.Points[idx].X
 		if g.hinting != font.HintingNone {
 			if len(program) != 0 {
 				err := g.hinter.run(
