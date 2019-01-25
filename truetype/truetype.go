@@ -18,7 +18,10 @@
 package truetype // import "github.com/golang/freetype/truetype"
 
 import (
+	"bytes"
 	"fmt"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"golang.org/x/image/math/fixed"
 )
@@ -421,22 +424,30 @@ func (f *Font) Name(id NameID) string {
 	// Return the ASCII value of the encoded string.
 	// The string is encoded as UTF-16 on non-Apple platformIDs; Apple is platformID 1.
 	src := f.name[offset : offset+length]
-	var dst []byte
+	
 	if platformID != 1 { // UTF-16.
 		if len(src)&1 != 0 {
 			return ""
 		}
-		dst = make([]byte, len(src)/2)
-		for i := range dst {
-			dst[i] = printable(u16(src, 2*i))
+		lb := len(src) / 2
+		b8buf := make([]byte, 4)
+		u16s := make([]uint16, 1)
+		var buf bytes.Buffer
+		for i := 0; i < lb; i ++  {
+			u16s[0] = u16(src, i)
+			r := utf16.Decode(u16s)
+			n := utf8.EncodeRune(b8buf, r[0])
+			buf.Write([]byte(string(b8buf[:n])))
 		}
+		return buf.String()
 	} else { // ASCII.
+		var dst []byte
 		dst = make([]byte, len(src))
 		for i, c := range src {
 			dst[i] = printable(uint16(c))
 		}
+		return string(dst)
 	}
-	return string(dst)
 }
 
 func printable(r uint16) byte {
