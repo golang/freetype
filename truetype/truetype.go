@@ -176,9 +176,13 @@ type cm struct {
 type Font struct {
 	// Tables sliced from the TTF data. The different tables are documented
 	// at http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html
-	cmap, cvt, fpgm, glyf, hdmx, head, hhea, hmtx, kern, loca, maxp, name, os2, prep, vmtx []byte
+	cmap, cvt, fpgm, glyf, hdmx, head, hhea, hmtx, kern, loca, maxp, name, os2, post, prep, vmtx []byte
 
 	cmapIndexes []byte
+
+	postVersion      uint32
+	glyphNameIndexes map[uint16]uint16
+	glyphNames       []string
 
 	// Cached values derived from the raw ttf data.
 	cm                      []cm
@@ -363,6 +367,47 @@ func (f *Font) parseMaxp() error {
 	return nil
 }
 
+func (f *Font) parsePost() error {
+
+	// follow post format table reading specification
+	// https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6post.html
+	// https://docs.microsoft.com/en-us/typography/opentype/spec/post
+	// https://github.com/RazrFalcon/ttf-parser/blob/439aaaebd50eb8aed66302e3c1b51fae047f85b2/src/tables/post.rs
+
+	var offset int
+	f.postVersion, offset = u32(f.post, 0), 4 // read fixed
+	// TODO may need all of these
+	// skipped attributes in another feature
+	offset = offset + 28 // skip italicAngle, underlinePosition, underlineThickness, isFixedPitch, minMemType42, maxMemType42, minMemType1, maxMemType1
+
+	f.glyphNameIndexes = make(map[uint16]uint16)
+
+	switch f.postVersion {
+	case 0x00010000:
+		// post table version 1 will use
+		// standard macintosh glpyh names table
+	case 0x00020000:
+		nGlyph := u16(f.post, offset)
+		offset = offset + 2
+
+		for i := uint16(0); i < nGlyph; i++ {
+			f.glyphNameIndexes[i], offset = u16(f.post, offset), offset+2
+		}
+		var length int
+		var name string
+		for len(f.post[offset:]) > 0 {
+			length, offset = int(f.post[offset]), offset+1
+			name, offset = string(f.post[offset:offset+length]), offset+length
+			f.glyphNames = append(f.glyphNames, name)
+		}
+		// 	 version 2.5 is deprecated as of OpenType Specification v1.3.
+		// 	 version 3.0 does not have any specification for parse it
+		// 	 version 4.0 already mention in Apple TrueType document but they said "As a rule, format 4 'post' tables are no longer necessary and should be avoided."
+	}
+
+	return nil
+}
+
 // scale returns x divided by f.fUnitsPerEm, rounded to the nearest integer.
 func (f *Font) scale(x fixed.Int26_6) fixed.Int26_6 {
 	if x >= 0 {
@@ -403,6 +448,31 @@ func (f *Font) Index(x rune) Index {
 		} else {
 			offset := int(cm.offset) + 2*(h-len(f.cm)+int(c-cm.start))
 			return Index(u16(f.cmapIndexes, offset))
+		}
+	}
+	return 0
+}
+
+// GlyphName return glyph name from the glyph index
+func (f *Font) GlyphName(glyphIndex Index) string {
+	var idx uint16
+	if idx = f.glyphNameIndexes[uint16(glyphIndex)]; idx > uint16(stdnamelen) {
+		return f.glyphNames[idx-uint16(stdnamelen)]
+	}
+	return standardMacintoshNames[idx]
+}
+
+// IndexFromGlyphName return glyph index from glyph name
+func (f *Font) IndexFromGlyphName(name string) Index {
+	var nameIndex int
+	for nameIndex = range f.glyphNames {
+		if f.glyphNames[nameIndex] == name {
+			break
+		}
+	}
+	for glyphIndex, glyphNameIndex := range f.glyphNameIndexes {
+		if nameIndex+stdnamelen == int(glyphNameIndex) {
+			return Index(glyphIndex)
 		}
 	}
 	return 0
@@ -627,6 +697,8 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 			f.prep, err = readTable(ttf, ttf[x+8:x+16])
 		case "vmtx":
 			f.vmtx, err = readTable(ttf, ttf[x+8:x+16])
+		case "post":
+			f.post, err = readTable(ttf, ttf[x+8:x+16])
 		}
 		if err != nil {
 			return
@@ -646,6 +718,12 @@ func parse(ttf []byte, offset int) (font *Font, err error) {
 		return
 	}
 	if err = f.parseHhea(); err != nil {
+		return
+	}
+	if err = f.parseHhea(); err != nil {
+		return
+	}
+	if err = f.parsePost(); err != nil {
 		return
 	}
 	font = f

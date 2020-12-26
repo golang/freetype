@@ -45,6 +45,23 @@ func mkBounds(minX, minY, maxX, maxY fixed.Int26_6) fixed.Rectangle26_6 {
 		},
 	}
 }
+func TestParsePostScriptFont(t *testing.T) {
+	f, _, err := parseTestdataFont("prompt-regular")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := f.GlyphName(f.Index('้')), "uni0E49"; got != want {
+		t.Errorf("GlyphName with ้ got %v, want %v", got, want)
+	}
+
+	if got, want := f.GlyphName(f.Index('a')), "a"; got != want {
+		t.Errorf("GlyphName with ้ got %v, want %v", got, want)
+	}
+
+	if got, want := f.IndexFromGlyphName("uni0E49"), f.Index('้'); got != want {
+		t.Errorf("IndexFromGlyphName with ้ got %v, want %v", got, want)
+	}
+}
 
 // TestParse tests that the luxisr.ttf metrics and glyphs are parsed correctly.
 // The numerical values can be manually verified by examining luxisr.ttx.
