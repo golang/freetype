@@ -27,6 +27,7 @@
 # Please keep the list sorted.
 
 Andrew Gerrand <adg@golang.org>
+Dmitri Shuralyov <dmitshur@golang.org>
 Jeff R. Allen <jra@nella.org> <jeff.allen@gmail.com>
 Maksim Kochkin <maxxarts@gmail.com>
 Michael Fogleman <fogleman@gmail.com>

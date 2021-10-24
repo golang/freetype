@@ -260,7 +260,7 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 // recalc recalculates scale and bounds values from the font size, screen
 // resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
-	c.scale = fixed.Int26_6(c.fontSize * c.dpi * (64.0 / 72.0))
+	c.scale = fixed.Int26_6(0.5 + (c.fontSize * c.dpi * 64 / 72))
 	if c.f == nil {
 		c.r.SetBounds(0, 0)
 	} else {
