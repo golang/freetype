@@ -78,7 +78,7 @@ type Context struct {
 // PointToFixed converts the given number of points (as in "a 12 point font")
 // into a 26.6 fixed point number of pixels.
 func (c *Context) PointToFixed(x float64) fixed.Int26_6 {
-	return fixed.Int26_6(x * float64(c.dpi) * (64.0 / 72.0))
+	return fixed.Int26_6(0.5 + (x * c.dpi * 64 / 72))
 }
 
 // drawContour draws the given closed contour with the given offset.

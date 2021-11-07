@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"golang.org/x/image/math/fixed"
 )
 
 func BenchmarkDrawString(b *testing.B) {
@@ -56,4 +58,23 @@ func BenchmarkDrawString(b *testing.B) {
 	runtime.ReadMemStats(&ms)
 	mallocs = ms.Mallocs - mallocs
 	b.Logf("%d iterations, %d mallocs per iteration\n", b.N, int(mallocs)/b.N)
+}
+
+func TestScaling(t *testing.T) {
+	c := NewContext()
+	for _, tc := range [...]struct {
+		in   float64
+		want fixed.Int26_6
+	}{
+		{in: 12, want: fixed.I(12)},
+		{in: 86.4, want: fixed.Int26_6(86<<6 + 26)}, // Issue https://github.com/golang/freetype/issues/85.
+	} {
+		c.SetFontSize(tc.in)
+		if got, want := c.scale, tc.want; got != want {
+			t.Errorf("scale after SetFontSize(%v) = %v, want %v", tc.in, got, want)
+		}
+		if got, want := c.PointToFixed(tc.in), tc.want; got != want {
+			t.Errorf("PointToFixed(%v) = %v, want %v", tc.in, got, want)
+		}
+	}
 }
