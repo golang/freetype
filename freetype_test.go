@@ -67,6 +67,10 @@ func TestScaling(t *testing.T) {
 		want fixed.Int26_6
 	}{
 		{in: 12, want: fixed.I(12)},
+		{in: 11.992, want: fixed.I(12) - 1},
+		{in: 11.993, want: fixed.I(12)},
+		{in: 12.007, want: fixed.I(12)},
+		{in: 12.008, want: fixed.I(12) + 1},
 		{in: 86.4, want: fixed.Int26_6(86<<6 + 26)}, // Issue https://github.com/golang/freetype/issues/85.
 	} {
 		c.SetFontSize(tc.in)
