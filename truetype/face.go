@@ -139,11 +139,12 @@ func (o *Options) subPixelsY() (value uint32, halfQuantum, mask fixed.Int26_6) {
 //
 // For example, q == 4 leads to a bias of 8 and a mask of 0xfffffff0, or -16,
 // because we want to round fractions of fixed.Int26_6 as:
-//	-  0 to  7 rounds to 0.
-//	-  8 to 23 rounds to 16.
-//	- 24 to 39 rounds to 32.
-//	- 40 to 55 rounds to 48.
-//	- 56 to 63 rounds to 64.
+//   - 0 to  7 rounds to 0.
+//   - 8 to 23 rounds to 16.
+//   - 24 to 39 rounds to 32.
+//   - 40 to 55 rounds to 48.
+//   - 56 to 63 rounds to 64.
+//
 // which means to add 8 and then bitwise-and with -16, in two's complement
 // representation.
 //
@@ -205,6 +206,7 @@ func NewFace(f *Font, opts *Options) IndexableFace {
 		glyphCache: make([]glyphCacheEntry, opts.glyphCacheEntries()),
 		stroke:     fixed.I(opts.Stroke * 2),
 	}
+	a.r.UseNonZeroWinding = true // key for fonts
 	a.subPixelX, a.subPixelBiasX, a.subPixelMaskX = opts.subPixelsX()
 	a.subPixelY, a.subPixelBiasY, a.subPixelMaskY = opts.subPixelsY()
 
@@ -388,13 +390,15 @@ func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
 	}
 	advance, ok = a.advanceCache[r]
 	if ok {
-		return
+		idx := a.index(r)
+		return advance, (idx != 0)
 	}
-	if err := a.glyphBuf.Load(a.f, a.scale, a.index(r), a.hinting); err != nil {
+	idx := a.index(r)
+	if err := a.glyphBuf.Load(a.f, a.scale, idx, a.hinting); err != nil {
 		return 0, false
 	}
 	a.advanceCache[r] = a.glyphBuf.AdvanceWidth
-	return a.glyphBuf.AdvanceWidth, true
+	return a.glyphBuf.AdvanceWidth, (idx != 0)
 }
 
 // rasterize returns the advance width, integer-pixel offset to render at, and
