@@ -3,7 +3,9 @@
 // FreeType License or the GNU General Public License version 2 (or
 // any later version), both of which can be found in the LICENSE file.
 
+//go:build example
 // +build example
+
 //
 // This build tag means that "go install ..."
 // doesn't install this example program. Use "go run main.go" to run it or "go

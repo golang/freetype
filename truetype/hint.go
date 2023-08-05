@@ -1677,11 +1677,13 @@ func fmul(x, y fixed.Int26_6) fixed.Int26_6 {
 }
 
 // dotProduct returns the dot product of [x, y] and q. It is almost the same as
+//
 //	px := int64(x)
 //	py := int64(y)
 //	qx := int64(q[0])
 //	qy := int64(q[1])
 //	return fixed.Int26_6((px*qx + py*qy + 1<<13) >> 14)
+//
 // except that the computation is done with 32-bit integers to produce exactly
 // the same rounding behavior as C Freetype.
 func dotProduct(x, y fixed.Int26_6, q [2]f2dot14) fixed.Int26_6 {
