@@ -15,10 +15,14 @@
 //
 // To measure a TrueType font in ideal FUnit space, use scale equal to
 // font.FUnitsPerEm().
-package truetype // import "github.com/golang/freetype/truetype"
+
+package truetype
 
 import (
+	"bytes"
 	"fmt"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"golang.org/x/image/math/fixed"
 )
@@ -133,7 +137,7 @@ func parseSubtables(table []byte, name string, offset, size int, pred func([]byt
 	if len(table) < size*nSubtables+offset {
 		return 0, 0, FormatError(name + " too short")
 	}
-	ok := false
+	bestScore := -1
 	for i := 0; i < nSubtables; i, offset = i+1, offset+size {
 		if pred != nil && !pred(table[offset:]) {
 			continue
@@ -143,19 +147,24 @@ func parseSubtables(table []byte, name string, offset, size int, pred func([]byt
 		pidPsid := u32(table, offset)
 		// We prefer the Unicode cmap encoding. Failing to find that, we fall
 		// back onto the Microsoft cmap encoding.
+		// And we prefer full/UCS4 encoding over BMP/UCS2. So the priority goes:
+		//    unicodeEncodingFull > microsoftUCS4Encoding > unicodeEncodingBMPOnly > microsoftUCS2Encoding > microsoftSymbolEncoding
+		// It is in accord with the Psid part.
+		score := int(pidPsid & 0xFFFF)
+		if score <= bestScore {
+			continue
+		}
 		if pidPsid == unicodeEncodingBMPOnly || pidPsid == unicodeEncodingFull {
-			bestOffset, bestPID, ok = offset, pidPsid>>16, true
+			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
 			break
 
 		} else if pidPsid == microsoftSymbolEncoding ||
 			pidPsid == microsoftUCS2Encoding ||
 			pidPsid == microsoftUCS4Encoding {
-
-			bestOffset, bestPID, ok = offset, pidPsid>>16, true
-			// We don't break out of the for loop, so that Unicode can override Microsoft.
+			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
 		}
 	}
-	if !ok {
+	if bestScore < 0 {
 		return 0, 0, UnsupportedError(name + " encoding")
 	}
 	return bestOffset, bestPID, nil
@@ -187,6 +196,7 @@ type Font struct {
 	fUnitsPerEm             int32
 	ascent                  int32               // In FUnits.
 	descent                 int32               // In FUnits; typically negative.
+	lineGap                 int32               // In FUnits.
 	bounds                  fixed.Rectangle26_6 // In FUnits.
 	// Values from the maxp section.
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
@@ -294,6 +304,7 @@ func (f *Font) parseHhea() error {
 	}
 	f.ascent = int32(int16(u16(f.hhea, 4)))
 	f.descent = int32(int16(u16(f.hhea, 6)))
+	f.lineGap = int32(int16(u16(f.hhea, 8)))
 	f.nHMetric = int(u16(f.hhea, 34))
 	if 4*f.nHMetric+2*(f.nGlyph-f.nHMetric) != len(f.hmtx) {
 		return FormatError(fmt.Sprintf("bad hmtx length: %d", len(f.hmtx)))
@@ -312,9 +323,10 @@ func (f *Font) parseKern() error {
 	// Since we expect that almost all fonts aim to be Windows-compatible, we only parse the "older" format,
 	// just like the C Freetype implementation.
 	if len(f.kern) == 0 {
-		if f.nKern != 0 {
-			return FormatError("bad kern table length")
-		}
+		// if f.nKern != 0 {
+		// 	return FormatError("bad kern table length")
+		// }
+		f.nKern = 0 // just reset and move on
 		return nil
 	}
 	if len(f.kern) < 18 {
@@ -322,7 +334,9 @@ func (f *Font) parseKern() error {
 	}
 	version, offset := u16(f.kern, 0), 2
 	if version != 0 {
-		return UnsupportedError(fmt.Sprintf("kern version: %d", version))
+		f.nKern = 0
+		return nil
+		// return UnsupportedError(fmt.Sprintf("kern version: %d", version))
 	}
 
 	n, offset := u16(f.kern, offset), offset+2
@@ -346,7 +360,9 @@ func (f *Font) parseKern() error {
 	}
 	f.nKern, offset = int(u16(f.kern, offset)), offset+2
 	if 6*f.nKern != length-14 {
-		return FormatError("bad kern table length")
+		f.nKern = 0
+		return nil
+		// return FormatError("bad kern table length")
 	}
 	return nil
 }
@@ -421,20 +437,27 @@ func (f *Font) Name(id NameID) string {
 	// Return the ASCII value of the encoded string.
 	// The string is encoded as UTF-16 on non-Apple platformIDs; Apple is platformID 1.
 	src := f.name[offset : offset+length]
-	var dst []byte
 	if platformID != 1 { // UTF-16.
 		if len(src)&1 != 0 {
 			return ""
 		}
-		dst = make([]byte, len(src)/2)
-		for i := range dst {
-			dst[i] = printable(u16(src, 2*i))
+		lb := len(src) / 2
+		b8buf := make([]byte, 4)
+		u16s := make([]uint16, 1)
+		var buf bytes.Buffer
+		for i := 0; i < lb; i++ {
+			u16s[0] = u16(src, i)
+			r := utf16.Decode(u16s)
+			n := utf8.EncodeRune(b8buf, r[0])
+			buf.Write([]byte(string(b8buf[:n])))
 		}
-	} else { // ASCII.
-		dst = make([]byte, len(src))
-		for i, c := range src {
-			dst[i] = printable(uint16(c))
-		}
+		return buf.String()
+	}
+	// ASCII.
+	var dst []byte
+	dst = make([]byte, len(src))
+	for i, c := range src {
+		dst[i] = printable(uint16(c))
 	}
 	return string(dst)
 }

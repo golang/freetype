@@ -27,10 +27,12 @@
 # Please keep the list sorted.
 
 Andrew Gerrand <adg@golang.org>
+Dmitri Shuralyov <dmitshur@golang.org>
 Jeff R. Allen <jra@nella.org> <jeff.allen@gmail.com>
 Maksim Kochkin <maxxarts@gmail.com>
 Michael Fogleman <fogleman@gmail.com>
 Nigel Tao <nigeltao@golang.org>
+Randall O'Reilly <oreilly@ucdavis.edu>
 Rémy Oudompheng <oudomphe@phare.normalesup.org> <remyoudompheng@gmail.com>
 Rob Pike <r@golang.org>
 Roger Peppe <rogpeppe@gmail.com>

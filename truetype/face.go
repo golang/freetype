@@ -9,7 +9,7 @@ import (
 	"image"
 	"math"
 
-	"github.com/golang/freetype/raster"
+	"github.com/goki/freetype/raster"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -66,6 +66,11 @@ type Options struct {
 	//
 	// A zero value means to use 1 sub-pixel location.
 	SubPixelsY int
+
+	// Stroke is the number of pixels that the font glyphs are being stroked.
+	//
+	// A zero values means no stroke.
+	Stroke int
 }
 
 func (o *Options) size() float64 {
@@ -134,11 +139,12 @@ func (o *Options) subPixelsY() (value uint32, halfQuantum, mask fixed.Int26_6) {
 //
 // For example, q == 4 leads to a bias of 8 and a mask of 0xfffffff0, or -16,
 // because we want to round fractions of fixed.Int26_6 as:
-//	-  0 to  7 rounds to 0.
-//	-  8 to 23 rounds to 16.
-//	- 24 to 39 rounds to 32.
-//	- 40 to 55 rounds to 48.
-//	- 56 to 63 rounds to 64.
+//   - 0 to  7 rounds to 0.
+//   - 8 to 23 rounds to 16.
+//   - 24 to 39 rounds to 32.
+//   - 40 to 55 rounds to 48.
+//   - 56 to 63 rounds to 64.
+//
 // which means to add 8 and then bitwise-and with -16, in two's complement
 // representation.
 //
@@ -175,14 +181,32 @@ type indexCacheEntry struct {
 	index Index
 }
 
+type IndexableFace interface {
+	font.Face
+
+	// GlyphAtIndex returns the draw.DrawMask parameters (dr, mask, maskp) to draw the
+	// glyph identified by gid at the sub-pixel destination location dot, and that glyph's
+	// advance width.
+	//
+	// It returns !ok if the face does not contain a glyph for r.
+	//
+	// The contents of the mask image returned by one Glyph call may change
+	// after the next Glyph call. Callers that want to cache the mask must make
+	// a copy.
+	GlyphAtIndex(dot fixed.Point26_6, gid Index) (
+		dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool)
+}
+
 // NewFace returns a new font.Face for the given Font.
-func NewFace(f *Font, opts *Options) font.Face {
+func NewFace(f *Font, opts *Options) IndexableFace {
 	a := &face{
 		f:          f,
 		hinting:    opts.hinting(),
 		scale:      fixed.Int26_6(0.5 + (opts.size() * opts.dpi() * 64 / 72)),
 		glyphCache: make([]glyphCacheEntry, opts.glyphCacheEntries()),
+		stroke:     fixed.I(opts.Stroke * 2),
 	}
+	a.r.UseNonZeroWinding = true // key for fonts
 	a.subPixelX, a.subPixelBiasX, a.subPixelMaskX = opts.subPixelsX()
 	a.subPixelY, a.subPixelBiasY, a.subPixelMaskY = opts.subPixelsY()
 
@@ -207,6 +231,10 @@ func NewFace(f *Font, opts *Options) font.Face {
 	a.r.SetBounds(a.maxw, a.maxh)
 	a.p = facePainter{a}
 
+	if a.stroke != 0 {
+		a.r.UseNonZeroWinding = true
+	}
+
 	return a
 }
 
@@ -220,6 +248,7 @@ type face struct {
 	subPixelY     uint32
 	subPixelBiasY fixed.Int26_6
 	subPixelMaskY fixed.Int26_6
+	stroke        fixed.Int26_6
 	masks         *image.Alpha
 	glyphCache    []glyphCacheEntry
 	r             raster.Rasterizer
@@ -229,6 +258,7 @@ type face struct {
 	maxh          int
 	glyphBuf      GlyphBuf
 	indexCache    [indexCacheLen]indexCacheEntry
+	advanceCache  map[rune]fixed.Int26_6
 
 	// TODO: clip rectangle?
 }
@@ -255,9 +285,12 @@ func (a *face) Metrics() font.Metrics {
 	scale := float64(a.scale)
 	fupe := float64(a.f.FUnitsPerEm())
 	return font.Metrics{
-		Height:  a.scale,
+		Height:  fixed.Int26_6(math.Ceil(scale * float64(a.f.ascent-a.f.descent+a.f.lineGap) / fupe)),
 		Ascent:  fixed.Int26_6(math.Ceil(scale * float64(+a.f.ascent) / fupe)),
 		Descent: fixed.Int26_6(math.Ceil(scale * float64(-a.f.descent) / fupe)),
+		// TODO: Metrics should include LineGap as a separate measure
+		// TODO: Would also be great to include Ex as in the height of an "x" --
+		// used widely for layout
 	}
 }
 
@@ -276,6 +309,13 @@ func (a *face) Kern(r0, r1 rune) fixed.Int26_6 {
 func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool) {
 
+	return a.GlyphAtIndex(dot, a.index(r))
+}
+
+// GlyphAtIndex satisfies the IndexableFace interface.
+func (a *face) GlyphAtIndex(dot fixed.Point26_6, index Index) (
+	dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool) {
+
 	// Quantize to the sub-pixel granularity.
 	dotX := (dot.X + a.subPixelBiasX) & a.subPixelMaskX
 	dotY := (dot.Y + a.subPixelBiasY) & a.subPixelMaskY
@@ -284,7 +324,6 @@ func (a *face) Glyph(dot fixed.Point26_6, r rune) (
 	ix, fx := int(dotX>>6), dotX&0x3f
 	iy, fy := int(dotY>>6), dotY&0x3f
 
-	index := a.index(r)
 	cIndex := uint32(index)
 	cIndex = cIndex*a.subPixelX - uint32(fx/a.subPixelMaskX)
 	cIndex = cIndex*a.subPixelY - uint32(fy/a.subPixelMaskY)
@@ -329,6 +368,10 @@ func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.In
 	if xmin > xmax || ymin > ymax {
 		return fixed.Rectangle26_6{}, 0, false
 	}
+	xmin -= a.stroke
+	ymin -= a.stroke
+	xmax += a.stroke
+	ymax += a.stroke
 	return fixed.Rectangle26_6{
 		Min: fixed.Point26_6{
 			X: xmin,
@@ -342,10 +385,20 @@ func (a *face) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.In
 }
 
 func (a *face) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
-	if err := a.glyphBuf.Load(a.f, a.scale, a.index(r), a.hinting); err != nil {
+	if a.advanceCache == nil {
+		a.advanceCache = make(map[rune]fixed.Int26_6, 1024)
+	}
+	advance, ok = a.advanceCache[r]
+	if ok {
+		idx := a.index(r)
+		return advance, (idx != 0)
+	}
+	idx := a.index(r)
+	if err := a.glyphBuf.Load(a.f, a.scale, idx, a.hinting); err != nil {
 		return 0, false
 	}
-	return a.glyphBuf.AdvanceWidth, true
+	a.advanceCache[r] = a.glyphBuf.AdvanceWidth
+	return a.glyphBuf.AdvanceWidth, (idx != 0)
 }
 
 // rasterize returns the advance width, integer-pixel offset to render at, and
@@ -364,6 +417,10 @@ func (a *face) rasterize(index Index, fx, fy fixed.Int26_6) (v glyphCacheVal, ok
 	if xmin > xmax || ymin > ymax {
 		return glyphCacheVal{}, false
 	}
+	xmin -= int(a.stroke) >> 6
+	ymin -= int(a.stroke) >> 6
+	xmax += int(a.stroke) >> 6
+	ymax += int(a.stroke) >> 6
 	// A TrueType's glyph's nodes can have negative co-ordinates, but the
 	// rasterizer clips anything left of x=0 or above y=0. xmin and ymin are
 	// the pixel offsets, based on the font's FUnit metrics, that let a
@@ -434,7 +491,8 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 			others = ps
 		}
 	}
-	a.r.Start(start)
+	path := raster.Path{}
+	path.Start(start)
 	q0, on0 := start, true
 	for _, p := range others {
 		q := fixed.Point26_6{
@@ -444,9 +502,9 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 		on := p.Flags&0x01 != 0
 		if on {
 			if on0 {
-				a.r.Add1(q)
+				path.Add1(q)
 			} else {
-				a.r.Add2(q0, q)
+				path.Add2(q0, q)
 			}
 		} else {
 			if on0 {
@@ -456,16 +514,22 @@ func (a *face) drawContour(ps []Point, dx, dy fixed.Int26_6) {
 					X: (q0.X + q.X) / 2,
 					Y: (q0.Y + q.Y) / 2,
 				}
-				a.r.Add2(q0, mid)
+				path.Add2(q0, mid)
 			}
 		}
 		q0, on0 = q, on
 	}
 	// Close the curve.
 	if on0 {
-		a.r.Add1(start)
+		path.Add1(start)
 	} else {
-		a.r.Add2(q0, start)
+		path.Add2(q0, start)
+	}
+
+	if a.stroke == 0 {
+		a.r.AddPath(path)
+	} else {
+		a.r.AddStroke(path, a.stroke, raster.ButtCapper, raster.RoundJoiner)
 	}
 }
 

@@ -6,15 +6,15 @@
 // The freetype package provides a convenient API to draw text onto an image.
 // Use the freetype/raster and freetype/truetype packages for lower level
 // control over rasterization and TrueType parsing.
-package freetype // import "github.com/golang/freetype"
+package freetype
 
 import (
 	"errors"
 	"image"
 	"image/draw"
 
-	"github.com/golang/freetype/raster"
-	"github.com/golang/freetype/truetype"
+	"github.com/goki/freetype/raster"
+	"github.com/goki/freetype/truetype"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -78,7 +78,7 @@ type Context struct {
 // PointToFixed converts the given number of points (as in "a 12 point font")
 // into a 26.6 fixed point number of pixels.
 func (c *Context) PointToFixed(x float64) fixed.Int26_6 {
-	return fixed.Int26_6(x * float64(c.dpi) * (64.0 / 72.0))
+	return fixed.Int26_6(0.5 + (x * c.dpi * 64 / 72))
 }
 
 // drawContour draws the given closed contour with the given offset.
@@ -260,7 +260,7 @@ func (c *Context) DrawString(s string, p fixed.Point26_6) (fixed.Point26_6, erro
 // recalc recalculates scale and bounds values from the font size, screen
 // resolution and font metrics, and invalidates the glyph cache.
 func (c *Context) recalc() {
-	c.scale = fixed.Int26_6(c.fontSize * c.dpi * (64.0 / 72.0))
+	c.scale = fixed.Int26_6(0.5 + (c.fontSize * c.dpi * 64 / 72))
 	if c.f == nil {
 		c.r.SetBounds(0, 0)
 	} else {
@@ -332,10 +332,12 @@ func (c *Context) SetClip(clip image.Rectangle) {
 
 // NewContext creates a new Context.
 func NewContext() *Context {
-	return &Context{
+	c := &Context{
 		r:        raster.NewRasterizer(0, 0),
 		fontSize: 12,
 		dpi:      72,
 		scale:    12 << 6,
 	}
+	c.r.UseNonZeroWinding = true // needed for font rendering
+	return c
 }
