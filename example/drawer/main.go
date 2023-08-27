@@ -26,7 +26,7 @@ import (
 	"math"
 	"os"
 
-	"github.com/goki/freetype/truetype"
+	"goki.dev/freetype/truetype"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )

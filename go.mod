@@ -1,4 +1,4 @@
-module github.com/goki/freetype
+module goki.dev/freetype
 
 go 1.18
 
