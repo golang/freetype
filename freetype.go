@@ -13,8 +13,8 @@ import (
 	"image"
 	"image/draw"
 
-	"goki.dev/freetype/raster"
-	"goki.dev/freetype/truetype"
+	"github.com/goki/freetype/raster"
+	"github.com/goki/freetype/truetype"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )

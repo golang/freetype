@@ -9,7 +9,7 @@ import (
 	"image"
 	"math"
 
-	"goki.dev/freetype/raster"
+	"github.com/goki/freetype/raster"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
